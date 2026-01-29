@@ -1,5 +1,5 @@
 use std::{
-    io::{BufRead, BufReader, BufWriter, Stdout, Write, stdin, stdout},
+    io::{BufRead, BufReader, BufWriter, Stdin, Stdout, Write, stdin, stdout},
     time::Instant,
 };
 
@@ -49,17 +49,6 @@ impl From<HookDecision> for HookAnswer {
     }
 }
 
-fn write_decision(writer: &mut BufWriter<Stdout>, decision: HookDecision) -> Result<()> {
-    let answer: HookAnswer = decision.into();
-
-    let resp_string = serde_json::to_string(&answer)?;
-
-    writer.write_all(resp_string.as_bytes())?;
-    writer.flush()?;
-
-    Ok(())
-}
-
 fn is_tool_use(value: &Value) -> bool {
     for hint in TOOL_HINTS {
         if value.get(hint).is_some() {
@@ -70,107 +59,139 @@ fn is_tool_use(value: &Value) -> bool {
     false
 }
 
-fn accept(writer: &mut BufWriter<Stdout>) -> Result<()> {
-    write_decision(writer, HookDecision::Ignore)
+struct Hook {
+    config: Config,
+    cloud: CloudQuery,
+    reader: BufReader<Stdin>,
+    writer: BufWriter<Stdout>,
 }
 
-fn deny(writer: &mut BufWriter<Stdout>) -> Result<()> {
-    write_decision(writer, HookDecision::Block("Internal Failure".to_string()))
-}
+impl Hook {
+    pub fn new() -> Result<Self> {
+        let config = Config::load()?;
+        let cloud = CloudQuery::new()?;
 
-fn failure_callback(writer: &mut BufWriter<Stdout>, config: &Config) -> Result<()> {
-    if config.user.fail_open {
-        accept(writer)
-    } else {
-        deny(writer)
+        let stdin = stdin();
+        let stdout = stdout();
+
+        let reader = BufReader::new(stdin);
+        let writer = BufWriter::new(stdout);
+
+        Ok(Self {
+            config,
+            cloud,
+            reader,
+            writer,
+        })
     }
-}
 
-fn authorize_tool(config: &Config, cloud: &CloudQuery, value: Value) -> HookDecision {
-    //
-    // Do we fail-open?
-    //
-    match cloud.authorize(value) {
-        Ok(CloudVerdict::Allow) => HookDecision::Ignore,
-        Ok(CloudVerdict::Deny(r)) => {
-            warn!("Deny reason: {r}");
-            HookDecision::Block(r)
-        }
-        Err(e) => {
-            error!("cloud failed ({e})");
+    fn authorize_tool(&self, value: Value) -> HookDecision {
+        //
+        // Do we fail-open?
+        //
+        match self.cloud.authorize(value) {
+            Ok(CloudVerdict::Allow) => HookDecision::Ignore,
+            Ok(CloudVerdict::Deny(r)) => {
+                warn!("Deny reason: {r}");
+                HookDecision::Block(r)
+            }
+            Err(e) => {
+                error!("cloud failed ({e})");
 
-            if config.user.fail_open {
-                HookDecision::Ignore
-            } else {
-                let msg = format!("{PROJECT_NAME} cloud failure ({e})");
-                HookDecision::Block(msg)
+                if self.config.user.fail_open {
+                    HookDecision::Ignore
+                } else {
+                    let msg = format!("{PROJECT_NAME} cloud failure ({e})");
+                    HookDecision::Block(msg)
+                }
             }
         }
     }
-}
 
-fn io_loop() -> Result<()> {
-    let config = Config::load()?;
+    fn write_decision(&mut self, decision: HookDecision) -> Result<()> {
+        let answer: HookAnswer = decision.into();
 
-    let cloud = CloudQuery::new()?;
+        let resp_string = serde_json::to_string(&answer)?;
 
-    let stdin = stdin();
-    let stdout = stdout();
+        self.writer.write_all(resp_string.as_bytes())?;
+        self.writer.flush()?;
 
-    let mut rdr = BufReader::new(stdin);
-    let mut writer = BufWriter::new(stdout);
+        Ok(())
+    }
 
-    let mut line = String::new();
+    fn accept(&mut self) -> Result<()> {
+        self.write_decision(HookDecision::Ignore)
+    }
 
-    loop {
-        line.clear();
+    fn deny(&mut self) -> Result<()> {
+        self.write_decision(HookDecision::Block("Internal Failure".to_string()))
+    }
 
-        // that's a fatal error
-        let len = rdr
-            .read_line(&mut line)
-            .context("Unable to read from stdin")?;
-
-        if 0 == len {
-            // that's still successful, out input just got closed
-            warn!("EOF. We're leaving");
-            break; // EOF
-        }
-
-        let Ok(value) = serde_json::from_str(&line) else {
-            error!("Unable to parse {line}");
-            failure_callback(&mut writer, &config)?;
-            continue;
-        };
-
-        let start = Instant::now();
-
-        let decision = if is_tool_use(&value) {
-            //
-            // D&R Path
-            //
-            authorize_tool(&config, &cloud, value)
+    fn failure_callback(&mut self) -> Result<()> {
+        if self.config.user.fail_open {
+            self.accept()
         } else {
-            //
-            // This is best effort
-            //
-            if let Err(e) = cloud.notify(value) {
-                error!("Unable to notify cloud ({e})");
-            }
-            //
-            // Notification path ( fire and forget )
-            //
-            HookDecision::Ignore
-        };
-
-        let duration = start.elapsed().as_millis();
-
-        info!("Desision={decision} duration={duration}ms");
+            self.deny()
+        }
     }
 
-    Ok(())
+    pub fn io_loop(&mut self) -> Result<()> {
+        let mut line = String::new();
+
+        loop {
+            line.clear();
+
+            // that's a fatal error
+            let len = self
+                .reader
+                .read_line(&mut line)
+                .context("Unable to read from stdin")?;
+
+            if 0 == len {
+                // that's still successful, out input just got closed
+                warn!("EOF. We're leaving");
+                break; // EOF
+            }
+
+            let Ok(value) = serde_json::from_str(&line) else {
+                error!("Unable to parse {line}");
+                self.failure_callback()?;
+                continue;
+            };
+
+            let start = Instant::now();
+
+            let decision = if is_tool_use(&value) {
+                //
+                // D&R Path
+                //
+                self.authorize_tool(value)
+            } else {
+                //
+                // This is best effort
+                //
+                if let Err(e) = self.cloud.notify(value) {
+                    error!("Unable to notify cloud ({e})");
+                }
+                //
+                // Notification path ( fire and forget )
+                //
+                HookDecision::Ignore
+            };
+
+            let duration = start.elapsed().as_millis();
+
+            info!("Desision={decision} duration={duration}ms");
+        }
+
+        Ok(())
+    }
 }
 
 pub fn hook() -> Result<()> {
     info!("{PROJECT_NAME} is starting");
-    io_loop()
+
+    let mut hook = Hook::new()?;
+
+    hook.io_loop()
 }
