@@ -2,7 +2,7 @@ use std::time::SystemTime;
 
 use anyhow::{Context, Result, bail};
 use derive_more::Display;
-use log::warn;
+use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -96,10 +96,17 @@ impl CloudQuery {
         Ok(Self { config })
     }
 
-    pub fn _notify<S>(&self, _data: S) -> Result<()>
-    where
-        S: AsRef<str>,
-    {
+    pub fn notify(&self, data: Value) -> Result<()> {
+        let req = CloudRequest::new(&self.config, data)?;
+
+        let ret = minreq::post(&self.config.user.notification_url)
+            .with_json(&req)?
+            .send();
+
+        if let Err(e) = ret {
+            error!("{} failed ({e})", self.config.user.notification_url);
+        }
+
         Ok(())
     }
 

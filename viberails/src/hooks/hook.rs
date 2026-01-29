@@ -7,11 +7,15 @@ use anyhow::{Context, Result};
 use derive_more::Display;
 use log::{error, info, warn};
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::{
     cloud::query::{CloudQuery, CloudVerdict},
     common::PROJECT_NAME,
+    config::Config,
 };
+
+const TOOL_HINTS: &[&str] = &["tool_input", "tool_name", "tool_use_id"];
 
 #[derive(Serialize, Display)]
 #[allow(dead_code)]
@@ -45,18 +49,69 @@ impl From<HookDecision> for HookAnswer {
     }
 }
 
-fn write_decision(out: &mut BufWriter<Stdout>, decision: HookDecision) -> Result<()> {
+fn write_decision(writer: &mut BufWriter<Stdout>, decision: HookDecision) -> Result<()> {
     let answer: HookAnswer = decision.into();
 
     let resp_string = serde_json::to_string(&answer)?;
 
-    out.write_all(resp_string.as_bytes())?;
-    out.flush()?;
+    writer.write_all(resp_string.as_bytes())?;
+    writer.flush()?;
 
     Ok(())
 }
 
+fn is_tool_use(value: &Value) -> bool {
+    for hint in TOOL_HINTS {
+        if value.get(hint).is_some() {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn accept(writer: &mut BufWriter<Stdout>) -> Result<()> {
+    write_decision(writer, HookDecision::Ignore)
+}
+
+fn deny(writer: &mut BufWriter<Stdout>) -> Result<()> {
+    write_decision(writer, HookDecision::Block("Internal Failure".to_string()))
+}
+
+fn failure_callback(writer: &mut BufWriter<Stdout>, config: &Config) -> Result<()> {
+    if config.user.fail_open {
+        accept(writer)
+    } else {
+        deny(writer)
+    }
+}
+
+fn authorize_tool(config: &Config, cloud: &CloudQuery, value: Value) -> HookDecision {
+    //
+    // Do we fail-open?
+    //
+    match cloud.authorize(value) {
+        Ok(CloudVerdict::Allow) => HookDecision::Ignore,
+        Ok(CloudVerdict::Deny(r)) => {
+            warn!("Deny reason: {r}");
+            HookDecision::Block(r)
+        }
+        Err(e) => {
+            error!("cloud failed ({e})");
+
+            if config.user.fail_open {
+                HookDecision::Ignore
+            } else {
+                let msg = format!("{PROJECT_NAME} cloud failure ({e})");
+                HookDecision::Block(msg)
+            }
+        }
+    }
+}
+
 fn io_loop() -> Result<()> {
+    let config = Config::load()?;
+
     let cloud = CloudQuery::new()?;
 
     let stdin = stdin();
@@ -70,6 +125,7 @@ fn io_loop() -> Result<()> {
     loop {
         line.clear();
 
+        // that's a fatal error
         let len = rdr
             .read_line(&mut line)
             .context("Unable to read from stdin")?;
@@ -80,36 +136,35 @@ fn io_loop() -> Result<()> {
             break; // EOF
         }
 
-        let value =
-            serde_json::from_str(&line).with_context(|| format!("Unable to deserialize {line}"))?;
+        let Ok(value) = serde_json::from_str(&line) else {
+            error!("Unable to parse {line}");
+            failure_callback(&mut writer, &config)?;
+            continue;
+        };
 
-        //
-        // Query D&R
-        //
         let start = Instant::now();
 
-        //
-        // Do we fail-open?
-        //
-        let decision = match cloud.authorize(value) {
-            Ok(CloudVerdict::Allow) => HookDecision::Ignore,
-            Ok(CloudVerdict::Deny(r)) => {
-                warn!("Deny reason: {r}");
-                HookDecision::Block(r)
+        let decision = if is_tool_use(&value) {
+            //
+            // D&R Path
+            //
+            authorize_tool(&config, &cloud, value)
+        } else {
+            //
+            // This is best effort
+            //
+            if let Err(e) = cloud.notify(value) {
+                error!("Unable to notify cloud ({e})");
             }
-            Err(e) => {
-                error!("cloud failed ({e})");
-                //
-                // Fail-open. This should be a configuration
-                //
-                HookDecision::Ignore
-            }
+            //
+            // Notification path ( fire and forget )
+            //
+            HookDecision::Ignore
         };
 
         let duration = start.elapsed().as_millis();
-        info!("Desision={decision} duration={duration}ms");
 
-        write_decision(&mut writer, decision)?;
+        info!("Desision={decision} duration={duration}ms");
     }
 
     Ok(())
