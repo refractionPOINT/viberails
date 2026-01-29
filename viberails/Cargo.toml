@@ -1,0 +1,54 @@
+[package]
+name = "viberails"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+bon = "3.8"
+clap = { version = "4.5", features = ["derive"] }
+derive_more = { version = "2.1", features = ["display"] }
+dirs = "6.0"
+env_logger = "0.11"
+log = "0.4"
+minreq = { version = "2.14", features = [
+  "https-rustls-probe",
+  "json-using-serde",
+  "rustls"
+] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints.clippy]
+arithmetic_side_effects = "warn"
+# Correctness lints
+clone_on_ref_ptr = "warn"  # Avoid unnecessary clones of Arc/Rc
+# Code quality lints
+dbg_macro = "warn"  # Catch debug macros before commit
+exit = "warn"  # Prefer proper error handling over process::exit
+expect_used = "warn"
+filetype_is_file = "warn"  # Catch misuse of is_file()
+indexing_slicing = "warn"  # Prevent potential panics from indexing
+# Performance lints
+inefficient_to_string = "warn"  # Use more efficient string conversion
+large_enum_variant = "warn"  # Optimize enum memory layout
+lossy_float_literal = "warn"  # Catch precision loss in float literals
+manual_ok_or = "warn"  # Use ok_or_else for lazy evaluation
+mem_forget = "warn"  # Catch potential memory leaks
+missing_errors_doc = "allow"
+needless_pass_by_ref_mut = "warn"
+or_fun_call = "warn"  # Use unwrap_or_else instead of unwrap_or
+# Security-related lints
+panic = "warn"  # Avoid panics in production code
+pedantic = { level = "warn", priority = -1 }
+todo = "warn"  # Catch unfinished code before release
+unimplemented = "warn"  # Catch placeholder implementations
+unwrap_used = "warn"
+use_debug = "warn"  # Catch Debug formatting in production
+
+[profile.release]
+opt-level = "z"  # Optimize for size even more aggressively than "s"
+strip = true  # Strip symbols from binary
+lto = true  # Already have this
+panic = "abort"  # Remove unwinding code
+codegen-units = 1  # Better optimization (slower compile)
