@@ -67,6 +67,6 @@ fn main() -> Result<()> {
         Some(Command::Configure(a)) => configure(&a),
         Some(Command::ShowConfiguration) => show_configuration(),
         Some(Command::Auth) => bail!("Not Implemented"),
-        None => hook(),
+        _ => hook(),
     }
 }

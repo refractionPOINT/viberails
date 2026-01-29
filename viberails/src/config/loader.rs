@@ -64,7 +64,7 @@ pub struct Config {
 }
 
 impl Config {
-    fn load_existing(config_file: &Path) -> Result<Self> {
+    pub(crate) fn load_existing(config_file: &Path) -> Result<Self> {
         let config_string = fs::read_to_string(&config_file)
             .with_context(|| format!("Unable to read {}", config_file.display()))?;
 
