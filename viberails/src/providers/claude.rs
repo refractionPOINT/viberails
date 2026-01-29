@@ -8,7 +8,7 @@ use anyhow::{Context, Result, anyhow};
 use log::{info, warn};
 use serde_json::{Value, json};
 
-use crate::providers::LLmProviderTrait;
+use crate::providers::{HookEntry, LLmProviderTrait};
 
 pub struct Claude {
     self_program: String,
@@ -190,6 +190,10 @@ impl Claude {
 }
 
 impl LLmProviderTrait for Claude {
+    fn name(&self) -> &'static str {
+        "claude-code"
+    }
+
     // Install
     fn install(&self, hook_type: &str) -> anyhow::Result<()> {
         info!("Installing {hook_type} in {}", self.settings.display());
@@ -248,5 +252,49 @@ impl LLmProviderTrait for Claude {
             .with_context(|| format!("Failed to write to {}", self.settings.display()))?;
 
         Ok(())
+    }
+
+    fn list(&self) -> Result<Vec<HookEntry>> {
+        let data = fs::read_to_string(&self.settings)
+            .with_context(|| format!("Unable to read {}", self.settings.display()))?;
+
+        let json: Value = serde_json::from_str(&data)
+            .with_context(|| format!("Unable to parse JSON data in {}", self.settings.display()))?;
+
+        let mut entries = Vec::new();
+
+        let Some(hooks_obj) = json.get("hooks").and_then(|h| h.as_object()) else {
+            return Ok(entries);
+        };
+
+        for (hook_type, hook_type_arr) in hooks_obj {
+            let Some(hook_type_arr) = hook_type_arr.as_array() else {
+                continue;
+            };
+
+            for matcher_entry in hook_type_arr {
+                let matcher = matcher_entry
+                    .get("matcher")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let Some(hooks_arr) = matcher_entry.get("hooks").and_then(|h| h.as_array()) else {
+                    continue;
+                };
+
+                for hook in hooks_arr {
+                    if let Some(command) = hook.get("command").and_then(|c| c.as_str()) {
+                        entries.push(HookEntry {
+                            hook_type: hook_type.clone(),
+                            matcher: matcher.clone(),
+                            command: command.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(entries)
     }
 }

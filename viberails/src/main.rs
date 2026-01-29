@@ -43,6 +43,7 @@ enum Command {
     Uninstall,
 
     /// List Hooks
+    #[command(alias = "ls")]
     List,
 }
 
