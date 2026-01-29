@@ -98,11 +98,15 @@ impl<'a> CloudQuery<'a> {
         let req = CloudRequest::new(self.config, data)?;
 
         let ret = minreq::post(&self.config.user.notification_url)
-            .with_json(&req)?
+            .with_json(&req)
+            .context("Failed to serialize notification request")?
             .send();
 
         if let Err(e) = ret {
-            error!("{} failed ({e})", self.config.user.notification_url);
+            error!(
+                "Notification to {} failed: {e}",
+                self.config.user.notification_url
+            );
         }
 
         Ok(())
@@ -112,10 +116,19 @@ impl<'a> CloudQuery<'a> {
         let req = CloudRequest::new(self.config, data)?;
 
         let res = minreq::post(&self.config.user.authorize_url)
-            .with_json(&req)?
-            .send()?;
+            .with_json(&req)
+            .context("Failed to serialize authorization request")?
+            .send()
+            .with_context(|| {
+                format!(
+                    "Failed to connect to authorization server at {}",
+                    self.config.user.authorize_url
+                )
+            })?;
 
-        let data: CloudResponse = res.json()?;
+        let data: CloudResponse = res
+            .json()
+            .context("Authorization server returned invalid JSON response")?;
 
         let verdict = if data.allow {
             CloudVerdict::Allow

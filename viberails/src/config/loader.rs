@@ -97,7 +97,9 @@ impl Config {
             .open(&config_file)
             .with_context(|| format!("Unable to write {}", config_file.display()))?;
 
-        fd.write_all(config_string.as_bytes())?;
+        fd.write_all(config_string.as_bytes()).with_context(|| {
+            format!("Failed to write configuration to {}", config_file.display())
+        })?;
 
         Ok(())
     }

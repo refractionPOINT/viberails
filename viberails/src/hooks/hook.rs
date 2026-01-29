@@ -110,10 +110,15 @@ impl<'a> Hook<'a> {
     fn write_decision(&mut self, decision: HookDecision) -> Result<()> {
         let answer: HookAnswer = decision.into();
 
-        let resp_string = serde_json::to_string(&answer)?;
+        let resp_string =
+            serde_json::to_string(&answer).context("Failed to serialize hook response")?;
 
-        self.writer.write_all(resp_string.as_bytes())?;
-        self.writer.flush()?;
+        self.writer
+            .write_all(resp_string.as_bytes())
+            .context("Failed to write hook response to stdout")?;
+        self.writer
+            .flush()
+            .context("Failed to flush hook response")?;
 
         Ok(())
     }

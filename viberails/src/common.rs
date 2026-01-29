@@ -10,7 +10,7 @@ pub fn print_header() {
 }
 
 pub fn project_data_dir() -> Result<PathBuf> {
-    let data_dir = dirs::data_dir().ok_or_else(|| anyhow!("Couldn't find data directory"))?;
+    let data_dir = dirs::data_dir().ok_or_else(|| anyhow!("Unable to determine data directory. Ensure XDG_DATA_HOME or HOME environment variable is set"))?;
 
     let project_data_dir = data_dir.join(PROJECT_NAME);
 
@@ -26,7 +26,7 @@ pub fn project_data_dir() -> Result<PathBuf> {
 }
 
 pub fn project_config_dir() -> Result<PathBuf> {
-    let data_dir = dirs::config_dir().ok_or_else(|| anyhow!("Couldn't find config directory"))?;
+    let data_dir = dirs::config_dir().ok_or_else(|| anyhow!("Unable to determine config directory. Ensure XDG_CONFIG_HOME or HOME environment variable is set"))?;
 
     let project_data_dir = data_dir.join(PROJECT_NAME);
 

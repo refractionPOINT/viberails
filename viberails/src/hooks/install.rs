@@ -133,7 +133,9 @@ fn uninstall_binary(dst: &Path) -> Result<()> {
 }
 
 fn binary_location() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow!("Unable to find home directory"))?;
+    let home = dirs::home_dir().ok_or_else(|| {
+        anyhow!("Unable to determine home directory. Ensure HOME environment variable is set")
+    })?;
 
     let local_bin = home.join(".local").join("bin");
 

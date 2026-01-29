@@ -20,13 +20,19 @@ impl Claude {
     where
         P: AsRef<Path>,
     {
-        let config_dir =
-            dirs::home_dir().ok_or_else(|| anyhow!("Couldn't find config directory"))?;
+        let config_dir = dirs::home_dir().ok_or_else(|| {
+            anyhow!("Unable to determine home directory. Ensure HOME environment variable is set")
+        })?;
 
         let claude_dir = config_dir.join(".claude");
 
         if !claude_dir.exists() {
-            fs::create_dir_all(&claude_dir)?;
+            fs::create_dir_all(&claude_dir).with_context(|| {
+                format!(
+                    "Unable to create Claude config directory at {}",
+                    claude_dir.display()
+                )
+            })?;
         }
 
         let settings = claude_dir.join("settings.json");
@@ -34,7 +40,12 @@ impl Claude {
         let self_program = self_program
             .as_ref()
             .to_str()
-            .ok_or_else(|| anyhow!("Invalid path"))?
+            .ok_or_else(|| {
+                anyhow!(
+                    "Program path {:?} contains invalid UTF-8 characters",
+                    self_program.as_ref()
+                )
+            })?
             .to_string();
 
         Ok(Self {
@@ -51,21 +62,34 @@ impl Claude {
     }
 
     pub(crate) fn install_into(&self, hook_type: &str, json: &mut Value) -> Result<()> {
-        let root = json
-            .as_object_mut()
-            .ok_or_else(|| anyhow!("Expected JSON object"))?;
+        let root = json.as_object_mut().ok_or_else(|| {
+            anyhow!(
+                "Expected root of {} to be a JSON object",
+                self.settings.display()
+            )
+        })?;
 
         let hooks_obj = root
             .entry("hooks")
             .or_insert_with(|| json!({}))
             .as_object_mut()
-            .ok_or_else(|| anyhow!("Expected hooks to be an object"))?;
+            .ok_or_else(|| {
+                anyhow!(
+                    "Expected 'hooks' field in {} to be an object",
+                    self.settings.display()
+                )
+            })?;
 
         let hook_type_arr = hooks_obj
             .entry(hook_type)
             .or_insert_with(|| json!([]))
             .as_array_mut()
-            .ok_or_else(|| anyhow!("Expected {hook_type} to be an array"))?;
+            .ok_or_else(|| {
+                anyhow!(
+                    "Expected 'hooks.{hook_type}' field in {} to be an array",
+                    self.settings.display()
+                )
+            })?;
 
         // Look for an existing entry with matcher "*"
         let wildcard_entry = hook_type_arr
@@ -83,7 +107,12 @@ impl Claude {
                 .entry("hooks")
                 .or_insert_with(|| json!([]))
                 .as_array_mut()
-                .ok_or_else(|| anyhow!("Expected hooks to be an array"))?;
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Expected 'hooks' array in wildcard matcher for {hook_type} in {}",
+                        self.settings.display()
+                    )
+                })?;
 
             // Check if already installed
             let already_installed = hooks_arr
@@ -177,15 +206,18 @@ impl LLmProviderTrait for Claude {
         //
         // this should now be updated. Write it back to the file
         //
-        let json_str = serde_json::to_string_pretty(&json)?;
+        let json_str =
+            serde_json::to_string_pretty(&json).context("Failed to serialize Claude settings")?;
 
         let mut fd = fs::OpenOptions::new()
             .write(true)
             .truncate(true)
             .create(true)
-            .open(&self.settings)?;
+            .open(&self.settings)
+            .with_context(|| format!("Unable to open {} for writing", self.settings.display()))?;
 
-        fd.write_all(json_str.as_bytes())?;
+        fd.write_all(json_str.as_bytes())
+            .with_context(|| format!("Failed to write to {}", self.settings.display()))?;
 
         Ok(())
     }
@@ -202,15 +234,18 @@ impl LLmProviderTrait for Claude {
         self.uninstall_from(hook_type, &mut json)
             .with_context(|| format!("Unable to update {}", self.settings.display()))?;
 
-        let json_str = serde_json::to_string_pretty(&json)?;
+        let json_str =
+            serde_json::to_string_pretty(&json).context("Failed to serialize Claude settings")?;
 
         let mut fd = fs::OpenOptions::new()
             .write(true)
             .truncate(true)
             .create(true)
-            .open(&self.settings)?;
+            .open(&self.settings)
+            .with_context(|| format!("Unable to open {} for writing", self.settings.display()))?;
 
-        fd.write_all(json_str.as_bytes())?;
+        fd.write_all(json_str.as_bytes())
+            .with_context(|| format!("Failed to write to {}", self.settings.display()))?;
 
         Ok(())
     }
