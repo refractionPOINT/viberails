@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 
 use crate::{
     common::PROJECT_NAME,
-    config::{ConfigureArgs, configure},
+    config::{ConfigureArgs, configure, show_configuration},
     hooks::{hook, install, list, uninstall},
     logging::Logging,
 };
@@ -33,6 +33,9 @@ enum Command {
 
     /// Configure
     Configure(ConfigureArgs),
+
+    /// Show Config
+    ShowConfiguration,
 
     /// Install hooks
     Install,
@@ -62,6 +65,7 @@ fn main() -> Result<()> {
         Some(Command::Uninstall) => uninstall(),
         Some(Command::List) => list(),
         Some(Command::Configure(a)) => configure(&a),
+        Some(Command::ShowConfiguration) => show_configuration(),
         Some(Command::Auth) => bail!("Not Implemented"),
         None => hook(),
     }

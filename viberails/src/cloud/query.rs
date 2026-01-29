@@ -1,8 +1,10 @@
 use std::time::SystemTime;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use derive_more::Display;
+use log::warn;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::config::Config;
 
@@ -19,9 +21,45 @@ struct CloudResponse {
 }
 
 #[derive(Serialize)]
-struct CloudRequest<'a> {
+struct CloudRequest {
     ts: u128,
-    hook_data: &'a str,
+    data: Value,
+    session_id: Option<String>,
+}
+
+fn find_session_id(data: &Value) -> Option<String> {
+    //
+    // This is to be accomodating for various providers and or versions
+    // so we're mining for some kind of session id
+    //
+    if let Some(session_value) = data.get("session_id")
+        && let Some(session_id) = session_value.as_str()
+    {
+        return Some(session_id.to_string());
+    }
+
+    //
+    // We'll log it and hopefully it'll percolate so we can fix this
+    //
+    warn!("Unable to find a session id in {data}");
+    None
+}
+
+impl CloudRequest {
+    pub fn new(data: Value) -> Result<Self> {
+        let ts = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .context("Unable to get current timestamp")?
+            .as_millis();
+
+        let session_id = find_session_id(&data);
+
+        Ok(Self {
+            ts,
+            data,
+            session_id,
+        })
+    }
 }
 
 pub struct CloudQuery {
@@ -42,20 +80,18 @@ impl CloudQuery {
         Ok(())
     }
 
-    pub fn authorize<S>(&self, data: S) -> Result<CloudVerdict>
-    where
-        S: AsRef<str>,
-    {
-        let ts = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)?
-            .as_millis();
+    pub fn _authenticate(&self) -> Result<()> {
+        //
+        // Look if we already have a usable token
+        //
 
-        let req = CloudRequest {
-            ts,
-            hook_data: data.as_ref(),
-        };
+        bail!("Not Implemented");
+    }
 
-        let res = minreq::post(&self.config.authorize_url)
+    pub fn authorize(&self, data: Value) -> Result<CloudVerdict> {
+        let req = CloudRequest::new(data)?;
+
+        let res = minreq::post(&self.config.user.authorize_url)
             .with_json(&req)?
             .send()?;
 

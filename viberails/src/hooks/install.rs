@@ -5,10 +5,11 @@ use std::{
 
 use anyhow::{Context, Error, Result, anyhow};
 use colored::Colorize;
-use log::{info, warn};
+use log::{error, info, warn};
 
 use crate::{
     common::print_header,
+    config::uninstall_config,
     providers::{Claude, LLmProviderTrait, Providers},
 };
 
@@ -16,17 +17,27 @@ const LABEL_WIDTH: usize = 12;
 
 struct InstallResult {
     provider: Providers,
+    hooktype: &'static str,
     result: Result<(), Error>,
 }
+
+const CLAUDE_HOOKS: &[&str] = &["PreToolUse", "UserPromptSubmit"];
 
 impl fmt::Display for InstallResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.result {
-            Ok(()) => write!(f, "{:<LABEL_WIDTH$} {}", self.provider, "[SUCCESS]".green()),
+            Ok(()) => write!(
+                f,
+                "{:<LABEL_WIDTH$} {:<20} {}",
+                self.provider,
+                self.hooktype,
+                "[SUCCESS]".green()
+            ),
             Err(e) => write!(
                 f,
-                "{:<LABEL_WIDTH$} {} {}",
+                "{:<LABEL_WIDTH$} {:<20} {} {}",
                 self.provider,
+                self.hooktype,
                 "[FAILURE]".red(),
                 e
             ),
@@ -40,14 +51,17 @@ fn install_hooks(program: &Path) -> Vec<InstallResult> {
     let mut results = vec![];
 
     if let Ok(claude) = Claude::new(program) {
-        let ret = claude.install("PreToolUse");
+        for h in CLAUDE_HOOKS {
+            let ret = claude.install(h);
 
-        let result = InstallResult {
-            provider: Providers::ClaudeCode,
-            result: ret,
-        };
+            let result = InstallResult {
+                provider: Providers::ClaudeCode,
+                hooktype: h,
+                result: ret,
+            };
 
-        results.push(result);
+            results.push(result);
+        }
     }
 
     results
@@ -59,14 +73,17 @@ fn uninstall_hooks(program: &Path) -> Vec<InstallResult> {
     let mut results = vec![];
 
     if let Ok(claude) = Claude::new(program) {
-        let ret = claude.uninstall("PreToolUse");
+        for h in CLAUDE_HOOKS {
+            let ret = claude.uninstall(h);
 
-        let result = InstallResult {
-            provider: Providers::ClaudeCode,
-            result: ret,
-        };
+            let result = InstallResult {
+                provider: Providers::ClaudeCode,
+                hooktype: h,
+                result: ret,
+            };
 
-        results.push(result);
+            results.push(result);
+        }
     }
 
     results
@@ -157,12 +174,26 @@ pub fn install() -> Result<()> {
 }
 
 pub fn uninstall() -> Result<()> {
+    let mut success = true;
     let dst = binary_location()?;
 
     let results = uninstall_hooks(&dst);
 
     display_results(&results);
-    uninstall_binary(&dst)?;
 
-    Ok(())
+    if let Err(e) = uninstall_binary(&dst) {
+        error!("Unable to delete binary ({e}");
+        success = false;
+    }
+
+    if let Err(e) = uninstall_config() {
+        error!("Unable to delete config files ({e}");
+        success = false;
+    }
+
+    if success {
+        Ok(())
+    } else {
+        Err(anyhow!("Uninstall failures. See logs"))
+    }
 }

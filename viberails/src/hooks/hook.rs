@@ -3,7 +3,7 @@ use std::{
     time::Instant,
 };
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result};
 use derive_more::Display;
 use log::{error, info, warn};
 use serde::Serialize;
@@ -70,18 +70,18 @@ fn io_loop() -> Result<()> {
     loop {
         line.clear();
 
-        let len = match rdr.read_line(&mut line) {
-            Ok(v) => v,
-            Err(e) => {
-                bail!("Unable to read from stdin ({e})");
-            }
-        };
+        let len = rdr
+            .read_line(&mut line)
+            .context("Unable to read from stdin")?;
 
         if 0 == len {
             // that's still successful, out input just got closed
-            warn!("EOL we're leaving");
+            warn!("EOF. We're leaving");
             break; // EOF
         }
+
+        let value =
+            serde_json::from_str(&line).with_context(|| format!("Unable to deserialize {line}"))?;
 
         //
         // Query D&R
@@ -91,7 +91,7 @@ fn io_loop() -> Result<()> {
         //
         // Do we fail-open?
         //
-        let decision = match cloud.authorize(&line) {
+        let decision = match cloud.authorize(value) {
             Ok(CloudVerdict::Allow) => HookDecision::Ignore,
             Ok(CloudVerdict::Deny(r)) => {
                 warn!("Deny reason: {r}");
@@ -117,6 +117,5 @@ fn io_loop() -> Result<()> {
 
 pub fn hook() -> Result<()> {
     info!("{PROJECT_NAME} is starting");
-
     io_loop()
 }
