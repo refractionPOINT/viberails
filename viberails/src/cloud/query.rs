@@ -5,6 +5,7 @@ use derive_more::Display;
 use log::warn;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use uuid::Uuid;
 
 use crate::config::Config;
 
@@ -21,9 +22,16 @@ struct CloudResponse {
 }
 
 #[derive(Serialize)]
-struct CloudRequest {
+struct CloudRequestMeta<'a> {
     ts: u128,
-    data: Value,
+    installation_id: &'a str,
+    request_id: String,
+}
+
+#[derive(Serialize)]
+struct CloudRequest<'a> {
+    meta_data: CloudRequestMeta<'a>,
+    hook_data: Value,
     session_id: Option<String>,
 }
 
@@ -45,18 +53,33 @@ fn find_session_id(data: &Value) -> Option<String> {
     None
 }
 
-impl CloudRequest {
-    pub fn new(data: Value) -> Result<Self> {
+impl<'a> CloudRequestMeta<'a> {
+    pub fn new(config: &'a Config) -> Result<Self> {
         let ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .context("Unable to get current timestamp")?
             .as_millis();
 
-        let session_id = find_session_id(&data);
+        let installation_id = config.install_id.as_str();
+        let request_id = Uuid::new_v4().to_string();
 
         Ok(Self {
             ts,
-            data,
+            installation_id,
+            request_id,
+        })
+    }
+}
+
+impl<'a> CloudRequest<'a> {
+    pub fn new(config: &'a Config, hook_data: Value) -> Result<Self> {
+        let session_id = find_session_id(&hook_data);
+
+        let meta_data = CloudRequestMeta::new(config)?;
+
+        Ok(Self {
+            meta_data,
+            hook_data,
             session_id,
         })
     }
@@ -89,7 +112,7 @@ impl CloudQuery {
     }
 
     pub fn authorize(&self, data: Value) -> Result<CloudVerdict> {
-        let req = CloudRequest::new(data)?;
+        let req = CloudRequest::new(&self.config, data)?;
 
         let res = minreq::post(&self.config.user.authorize_url)
             .with_json(&req)?
