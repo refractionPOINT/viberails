@@ -49,7 +49,7 @@ fn find_session_id(data: &Value) -> Option<String> {
     //
     // We'll log it and hopefully it'll percolate so we can fix this
     //
-    warn!("Unable to find a session id in {data}");
+    warn!("Unable to find a session id in hook data");
     None
 }
 
