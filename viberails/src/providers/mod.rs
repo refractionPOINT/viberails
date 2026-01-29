@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use anyhow::Result;
 
 pub mod claude;
@@ -17,5 +15,5 @@ pub enum Providers {
 pub trait LLmProviderTrait {
     fn install(&self, hook_type: &str) -> Result<()>;
     fn uninstall(&self, hook_type: &str) -> Result<()>;
-    fn config_file(&self) -> &Path;
+    //fn config_file(&self) -> &Path;
 }

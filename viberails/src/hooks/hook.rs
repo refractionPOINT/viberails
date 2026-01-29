@@ -3,7 +3,7 @@ use std::{
     time::Instant,
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use derive_more::Display;
 use log::{error, info, warn};
 use serde::Serialize;
@@ -11,7 +11,6 @@ use serde::Serialize;
 use crate::{
     cloud::query::{CloudQuery, CloudVerdict},
     common::PROJECT_NAME,
-    logging::init_logging,
 };
 
 #[derive(Serialize, Display)]
@@ -117,11 +116,6 @@ fn io_loop() -> Result<()> {
 }
 
 pub fn hook() -> Result<()> {
-    let pid = std::process::id();
-    let file_name = format!("{PROJECT_NAME}_{pid}.log");
-
-    init_logging(Some(file_name)).context("Unable to initialized logging")?;
-
     info!("{PROJECT_NAME} is starting");
 
     io_loop()

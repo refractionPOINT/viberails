@@ -1,5 +1,5 @@
 use std::{
-    env, fs,
+    fs,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -66,14 +66,11 @@ impl Claude {
         })
     }
 
-    pub fn new() -> Result<Self> {
-        let exe = env::current_exe()?;
-        let self_program = exe
-            .to_str()
-            .ok_or_else(|| anyhow!("Invalid path"))?
-            .to_string();
-
-        Claude::with_custom_path(self_program)
+    pub fn new<P>(program: P) -> Result<Self>
+    where
+        P: AsRef<Path>,
+    {
+        Claude::with_custom_path(program)
     }
 
     fn already_installed(&self, hooks: &[ClaudeHooks]) -> bool {
@@ -108,12 +105,15 @@ impl Claude {
                 warn!("{hook_type} already exist in {}", self.settings.display());
                 return Ok(());
             }
-            entry.hooks.push(our_hook);
+            entry.hooks.insert(0, our_hook);
         } else {
-            hooks.push(ClaudeHook {
-                matcher: "*".to_string(),
-                hooks: vec![our_hook],
-            });
+            hooks.insert(
+                0,
+                ClaudeHook {
+                    matcher: "*".to_string(),
+                    hooks: vec![our_hook],
+                },
+            );
         }
 
         *hooks_value = serde_json::to_value(hooks)?;
@@ -158,7 +158,9 @@ impl LLmProviderTrait for Claude {
         bail!("Not Implemented")
     }
 
+    /*
     fn config_file(&self) -> &Path {
         &self.settings
     }
+    */
 }

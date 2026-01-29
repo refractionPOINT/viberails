@@ -9,10 +9,7 @@ use tabled::{
 };
 use url::Url;
 
-use crate::{
-    common::{print_header, project_config_dir},
-    logging::init_logging,
-};
+use crate::common::{print_header, project_config_dir};
 
 const DEF_AUTHENTICATION_URL: &str = "http://localhost:8000/auth";
 const DEF_AUTHORIZATION_URL: &str = "http://localhost:8000/dnr";
@@ -80,8 +77,6 @@ impl Config {
 }
 
 pub fn configure(args: &ConfigureArgs) -> Result<()> {
-    init_logging(Some("configure.log")).context("Unable to initialize logging")?;
-
     let config = Config::builder()
         .auth_url(args.auth_url.to_string())
         .authorize_url(args.authorize_url.to_string())

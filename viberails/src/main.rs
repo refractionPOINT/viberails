@@ -9,8 +9,10 @@ use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 
 use crate::{
+    common::PROJECT_NAME,
     config::{ConfigureArgs, configure},
     hooks::{hook, install, list, uninstall},
+    logging::Logging,
 };
 
 #[derive(Parser)]
@@ -41,8 +43,19 @@ enum Command {
     List,
 }
 
+fn init_logging(verbose: bool) -> Result<()> {
+    if verbose {
+        Logging::new().start()
+    } else {
+        let file_name = format!("{PROJECT_NAME}.log");
+        Logging::new().with_file(file_name).start()
+    }
+}
+
 fn main() -> Result<()> {
     let args = UserArgs::parse();
+
+    init_logging(args.verbose)?;
 
     match args.command {
         Some(Command::Install) => install(),
