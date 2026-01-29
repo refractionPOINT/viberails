@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use derive_more::Display;
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
@@ -106,14 +106,6 @@ impl<'a> CloudQuery<'a> {
         }
 
         Ok(())
-    }
-
-    pub fn _authenticate(&self) -> Result<()> {
-        //
-        // Look if we already have a usable token
-        //
-
-        bail!("Not Implemented");
     }
 
     pub fn authorize(&self, data: Value) -> Result<CloudVerdict> {

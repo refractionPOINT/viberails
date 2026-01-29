@@ -29,7 +29,7 @@ impl Logging {
         let mut b = env_logger::builder();
 
         if let Some(file_name) = &self.file_name {
-            let log_file = get_log_file_path(&file_name)?;
+            let log_file = get_log_file_path(file_name)?;
 
             let fd = fs::OpenOptions::new()
                 .create(true)

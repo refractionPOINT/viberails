@@ -32,7 +32,7 @@ enum Command {
     Auth,
 
     /// Configure
-    Configure(ConfigureArgs),
+    Configure(Box<ConfigureArgs>),
 
     /// Show Config
     ShowConfiguration,
