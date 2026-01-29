@@ -186,6 +186,8 @@ impl<'a> Hook<'a> {
             let duration = start.elapsed().as_millis();
 
             info!("Desision={decision} duration={duration}ms");
+
+            self.write_decision(decision)?;
         }
 
         Ok(())

@@ -49,7 +49,7 @@ fn find_session_id(data: &Value) -> Option<String> {
     //
     // We'll log it and hopefully it'll percolate so we can fix this
     //
-    warn!("Unable to find a session id in {data}");
+    warn!("Unable to find a session id in hook data");
     None
 }
 
@@ -98,6 +98,7 @@ impl<'a> CloudQuery<'a> {
         let req = CloudRequest::new(self.config, data)?;
 
         let ret = minreq::post(&self.config.user.notification_url)
+            .with_timeout(10)
             .with_json(&req)
             .context("Failed to serialize notification request")?
             .send();
@@ -116,6 +117,7 @@ impl<'a> CloudQuery<'a> {
         let req = CloudRequest::new(self.config, data)?;
 
         let res = minreq::post(&self.config.user.authorize_url)
+            .with_timeout(10)
             .with_json(&req)
             .context("Failed to serialize authorization request")?
             .send()
