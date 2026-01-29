@@ -59,17 +59,16 @@ fn is_tool_use(value: &Value) -> bool {
     false
 }
 
-struct Hook {
-    config: Config,
-    cloud: CloudQuery,
+struct Hook<'a> {
+    config: &'a Config,
+    cloud: CloudQuery<'a>,
     reader: BufReader<Stdin>,
     writer: BufWriter<Stdout>,
 }
 
-impl Hook {
-    pub fn new() -> Result<Self> {
-        let config = Config::load()?;
-        let cloud = CloudQuery::new()?;
+impl<'a> Hook<'a> {
+    pub fn new(config: &'a Config) -> Self {
+        let cloud = CloudQuery::new(config);
 
         let stdin = stdin();
         let stdout = stdout();
@@ -77,12 +76,12 @@ impl Hook {
         let reader = BufReader::new(stdin);
         let writer = BufWriter::new(stdout);
 
-        Ok(Self {
+        Self {
             config,
             cloud,
             reader,
             writer,
-        })
+        }
     }
 
     fn authorize_tool(&self, value: Value) -> HookDecision {
@@ -191,7 +190,8 @@ impl Hook {
 pub fn hook() -> Result<()> {
     info!("{PROJECT_NAME} is starting");
 
-    let mut hook = Hook::new()?;
+    let config = Config::load()?;
+    let mut hook = Hook::new(&config);
 
     hook.io_loop()
 }

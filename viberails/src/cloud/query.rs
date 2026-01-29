@@ -85,19 +85,17 @@ impl<'a> CloudRequest<'a> {
     }
 }
 
-pub struct CloudQuery {
-    config: Config,
+pub struct CloudQuery<'a> {
+    config: &'a Config,
 }
 
-impl CloudQuery {
-    pub fn new() -> Result<Self> {
-        let config = Config::load().context("Unable to load config file")?;
-
-        Ok(Self { config })
+impl<'a> CloudQuery<'a> {
+    pub fn new(config: &'a Config) -> Self {
+        Self { config }
     }
 
     pub fn notify(&self, data: Value) -> Result<()> {
-        let req = CloudRequest::new(&self.config, data)?;
+        let req = CloudRequest::new(self.config, data)?;
 
         let ret = minreq::post(&self.config.user.notification_url)
             .with_json(&req)?
@@ -119,7 +117,7 @@ impl CloudQuery {
     }
 
     pub fn authorize(&self, data: Value) -> Result<CloudVerdict> {
-        let req = CloudRequest::new(&self.config, data)?;
+        let req = CloudRequest::new(self.config, data)?;
 
         let res = minreq::post(&self.config.user.authorize_url)
             .with_json(&req)?
