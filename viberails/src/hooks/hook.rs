@@ -9,7 +9,7 @@ use log::{error, info, warn};
 use serde::Serialize;
 
 use crate::{
-    cloud::{CloudQuery, CloudVerdict},
+    cloud::query::{CloudQuery, CloudVerdict},
     common::PROJECT_NAME,
     logging::init_logging,
 };
@@ -58,7 +58,7 @@ fn write_decision(out: &mut BufWriter<Stdout>, decision: HookDecision) -> Result
 }
 
 fn io_loop() -> Result<()> {
-    let cloud = CloudQuery::new("ok")?;
+    let cloud = CloudQuery::new()?;
 
     let stdin = stdin();
     let stdout = stdout();
@@ -92,7 +92,7 @@ fn io_loop() -> Result<()> {
         //
         // Do we fail-open?
         //
-        let decision = match cloud.query(&line) {
+        let decision = match cloud.authorize(&line) {
             Ok(CloudVerdict::Allow) => HookDecision::Ignore,
             Ok(CloudVerdict::Deny(r)) => {
                 warn!("Deny reason: {r}");

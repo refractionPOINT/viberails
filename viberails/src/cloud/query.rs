@@ -1,8 +1,10 @@
 use std::time::SystemTime;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
+
+use crate::config::Config;
 
 #[derive(Display)]
 pub enum CloudVerdict {
@@ -23,20 +25,24 @@ struct CloudRequest<'a> {
 }
 
 pub struct CloudQuery {
-    server_url: String,
+    config: Config,
 }
 
 impl CloudQuery {
-    pub fn new<U>(server_url: U) -> Result<Self>
-    where
-        U: Into<String>,
-    {
-        Ok(Self {
-            server_url: server_url.into(),
-        })
+    pub fn new() -> Result<Self> {
+        let config = Config::load().context("Unable to load config file")?;
+
+        Ok(Self { config })
     }
 
-    pub fn query<S>(&self, data: S) -> Result<CloudVerdict>
+    pub fn _notify<S>(&self, _data: S) -> Result<()>
+    where
+        S: AsRef<str>,
+    {
+        Ok(())
+    }
+
+    pub fn authorize<S>(&self, data: S) -> Result<CloudVerdict>
     where
         S: AsRef<str>,
     {
@@ -49,7 +55,9 @@ impl CloudQuery {
             hook_data: data.as_ref(),
         };
 
-        let res = minreq::post(&self.server_url).with_json(&req)?.send()?;
+        let res = minreq::post(&self.config.authorize_url)
+            .with_json(&req)?
+            .send()?;
 
         let data: CloudResponse = res.json()?;
 

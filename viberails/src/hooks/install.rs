@@ -1,4 +1,7 @@
-use anyhow::{Context, Result};
+use std::fmt;
+
+use anyhow::{Context, Error, Result};
+use colored::Colorize;
 use log::info;
 
 use crate::{
@@ -6,55 +9,90 @@ use crate::{
     providers::{Claude, LLmProviderTrait, Providers},
 };
 
-#[derive(clap::Args)]
-pub struct InstallArgs {
-    /// Providers
-    #[arg(short, long)]
+const LABEL_WIDTH: usize = 12;
+
+struct InstallResult {
     provider: Providers,
+    result: Result<(), Error>,
 }
 
-#[derive(clap::Args)]
-pub struct UninstallArgs {
-    /// Providers
-    #[arg(short, long)]
-    provider: Providers,
-
-    /// Clear and clear everything
-    #[arg(short, long)]
-    clear: bool,
-}
-
-fn install_hooks(args: &InstallArgs) -> Result<()> {
-    info!("Installing hooks for {}", args.provider);
-
-    match args.provider {
-        Providers::ClaudeCode => {
-            let claude = Claude::new()?;
-            claude.install("PreToolUse")
+impl fmt::Display for InstallResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.result {
+            Ok(()) => write!(f, "{:<LABEL_WIDTH$} {}", self.provider, "[SUCCESS]".green()),
+            Err(e) => write!(
+                f,
+                "{:<LABEL_WIDTH$} {} {}",
+                self.provider,
+                "[FAILURE]".red(),
+                e
+            ),
         }
     }
 }
 
-fn uninstall_hooks(args: &UninstallArgs) -> Result<()> {
-    info!("Installing hooks for {}", args.provider);
+fn install_hooks() -> Vec<InstallResult> {
+    info!("Installing hooks");
 
-    match args.provider {
-        Providers::ClaudeCode => {
-            let claude = Claude::new()?;
-            claude.uninstall("PreToolUse")
-        }
+    let mut results = vec![];
+
+    if let Ok(claude) = Claude::new() {
+        let ret = claude.install("PreToolUse");
+
+        let result = InstallResult {
+            provider: Providers::ClaudeCode,
+            result: ret,
+        };
+
+        results.push(result);
+    }
+
+    results
+}
+
+fn uninstall_hooks() -> Vec<InstallResult> {
+    info!("Uninstalling hooks");
+
+    let mut results = vec![];
+
+    if let Ok(claude) = Claude::new() {
+        let ret = claude.uninstall("PreToolUse");
+
+        let result = InstallResult {
+            provider: Providers::ClaudeCode,
+            result: ret,
+        };
+
+        results.push(result);
+    }
+
+    results
+}
+
+fn display_results(results: &[InstallResult]) {
+    for r in results {
+        println!("{r}");
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // PIBLIC
 ////////////////////////////////////////////////////////////////////////////////
-pub fn install(args: &InstallArgs) -> Result<()> {
+pub fn install() -> Result<()> {
     init_logging(Some("install.log")).context("Unable to initialize logging")?;
-    install_hooks(args)
+    let results = install_hooks();
+
+    display_results(&results);
+
+    Ok(())
 }
 
-pub fn uninstall(args: &UninstallArgs) -> Result<()> {
+pub fn uninstall() -> Result<()> {
     init_logging(Some("uninstall.log")).context("Unable to initialize logging")?;
-    uninstall_hooks(args)
+
+    let results = uninstall_hooks();
+
+    display_results(&results);
+
+    Ok(())
 }
