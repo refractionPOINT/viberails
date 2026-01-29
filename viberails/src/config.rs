@@ -56,8 +56,9 @@ impl Default for UserConfig {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Tabled)]
 pub struct Config {
+    #[tabled(inline)]
     pub user: UserConfig,
     pub install_id: String,
 }
@@ -116,8 +117,8 @@ impl Config {
     }
 }
 
-fn display_configuration(user_config: &UserConfig) {
-    let mut table = Table::new([&user_config]);
+fn display_configuration(config: &Config) {
+    let mut table = Table::new([config]);
     table
         .with(Rotate::Left)
         .with(Style::modern())
@@ -158,7 +159,7 @@ pub fn uninstall_config() -> Result<()> {
 pub fn show_configuration() -> Result<()> {
     let config = Config::load()?;
 
-    display_configuration(&config.user);
+    display_configuration(&config);
 
     Ok(())
 }
@@ -177,7 +178,7 @@ pub fn configure(args: &ConfigureArgs) -> Result<()> {
 
     config.save()?;
 
-    display_configuration(&config.user);
+    display_configuration(&config);
 
     Ok(())
 }
