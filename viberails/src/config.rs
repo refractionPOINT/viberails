@@ -10,7 +10,7 @@ use tabled::{
 use url::Url;
 
 use crate::{
-    common::{PROJECT_NAME, PROJECT_VERSION, project_config_dir},
+    common::{print_header, project_config_dir},
     logging::init_logging,
 };
 
@@ -97,7 +97,7 @@ pub fn configure(args: &ConfigureArgs) -> Result<()> {
         .with(Style::modern())
         .with(Margin::new(4, 0, 0, 0));
 
-    println!("{PROJECT_NAME} {PROJECT_VERSION}");
+    print_header();
     println!("{table}");
 
     Ok(())

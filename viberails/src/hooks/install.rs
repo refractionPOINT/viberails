@@ -5,6 +5,7 @@ use colored::Colorize;
 use log::info;
 
 use crate::{
+    common::print_header,
     logging::init_logging,
     providers::{Claude, LLmProviderTrait, Providers},
 };
@@ -70,6 +71,7 @@ fn uninstall_hooks() -> Vec<InstallResult> {
 }
 
 fn display_results(results: &[InstallResult]) {
+    print_header();
     for r in results {
         println!("{r}");
     }

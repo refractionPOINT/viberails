@@ -5,6 +5,10 @@ use anyhow::{Context, Result, anyhow};
 pub const PROJECT_NAME: &str = env!("CARGO_PKG_NAME");
 pub const PROJECT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub fn print_header() {
+    println!("{PROJECT_NAME} {PROJECT_VERSION}");
+}
+
 pub fn project_data_dir() -> Result<PathBuf> {
     let data_dir = dirs::data_dir().ok_or_else(|| anyhow!("Couldn't find data directory"))?;
 
