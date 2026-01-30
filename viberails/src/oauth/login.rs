@@ -8,7 +8,7 @@ use log::info;
 use crate::{
     cloud::lc_api::{
         WebhookAdapter, create_installation_key, get_jwt_firebase, get_org_urls, org_available,
-        org_create,
+        org_create, signup_user,
     },
     common::PROJECT_NAME,
     config::{Config, LcOrg},
@@ -143,6 +143,20 @@ pub fn login(args: &LoginArgs) -> Result<()> {
     println!("Starting authentication...");
     let login = authorize(args)?;
     println!("Authentication successful.");
+
+    //
+    // Create LimaCharlie user profile if this is a new user.
+    // This calls the same signUp Cloud Function that the web frontend uses.
+    // The function is safe to call for existing users - it will return early.
+    //
+    if let Some(ref email) = login.email {
+        println!("Setting up user profile...");
+        info!("Creating user profile for {}", email);
+        signup_user(&login.id_token, email)
+            .context("Failed to create user profile")?;
+    } else {
+        info!("No email in OAuth response, skipping user profile creation");
+    }
 
     println!("Requesting access token...");
     info!("requesting a JWT token");

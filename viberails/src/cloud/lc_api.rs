@@ -1,11 +1,34 @@
 use anyhow::{Context, Result};
 use bon::Builder;
+use log::info;
 use serde::{Deserialize, Serialize};
 
 use crate::{cloud::REQUEST_TIMEOUT_SECS, common::PROJECT_NAME};
 
 const LC_JWT_URL: &str = "https://jwt.limacharlie.io";
 const LC_API_URL: &str = "https://api.limacharlie.io/v1";
+const FIREBASE_SIGNUP_URL: &str =
+    "https://us-central1-refractionpoint-lce.cloudfunctions.net/signUp";
+
+/// Metadata for user signup
+#[derive(Serialize)]
+struct SignupMetadata {
+    is_custom_domain: bool,
+    is_custom_domain_client: bool,
+    is_internal_user: bool,
+}
+
+/// Request payload for Firebase signUp Cloud Function
+#[derive(Serialize)]
+struct SignupRequest<'a> {
+    data: SignupData<'a>,
+}
+
+#[derive(Serialize)]
+struct SignupData<'a> {
+    email: &'a str,
+    metadata: SignupMetadata,
+}
 
 #[derive(Deserialize)]
 struct LcJwtResponse {
@@ -111,6 +134,79 @@ where
         .context("Jwt endpoint returned invalid JSON response")?;
 
     Ok(resp.jwt)
+}
+
+/// Create a LimaCharlie user profile via Firebase signUp Cloud Function.
+///
+/// This function calls the same signUp Cloud Function that the web frontend uses
+/// to create a user profile in Firebase Realtime Database. This is required before
+/// the JWT endpoint will work for new users.
+///
+/// The function is safe to call for existing users - the Cloud Function checks
+/// if the user already exists and returns early if so.
+///
+/// # Arguments
+/// * `id_token` - Firebase ID token from OAuth authentication
+/// * `email` - User's email address
+///
+/// # Returns
+/// * `Ok(())` - User profile created or already exists
+/// * `Err` - If the signup request fails
+pub fn signup_user<T, E>(id_token: T, email: E) -> Result<()>
+where
+    T: AsRef<str>,
+    E: AsRef<str>,
+{
+    let email = email.as_ref();
+    info!("Creating LimaCharlie user profile for {}", email);
+
+    let is_internal = email.ends_with("@limacharlie.io") || email.ends_with("@refractionpoint.com");
+
+    let payload = SignupRequest {
+        data: SignupData {
+            email,
+            metadata: SignupMetadata {
+                is_custom_domain: false,
+                is_custom_domain_client: false,
+                is_internal_user: is_internal,
+            },
+        },
+    };
+
+    let res = minreq::post(FIREBASE_SIGNUP_URL)
+        .with_timeout(REQUEST_TIMEOUT_SECS)
+        .with_header("Authorization", format!("Bearer {}", id_token.as_ref()))
+        .with_header("Content-Type", "application/json")
+        .with_json(&payload)?
+        .send()
+        .context("Failed to call signUp Cloud Function")?;
+
+    // 200 = success, user created
+    // 400 with "already signed up" = user exists, which is fine
+    if res.status_code == 200 {
+        info!("User profile created successfully");
+        return Ok(());
+    }
+
+    let response_body = res.as_str().unwrap_or("(non-utf8 response)");
+
+    // Check if user already exists (not an error)
+    if response_body.contains("already signed up") || response_body.contains("already exists") {
+        info!("User profile already exists");
+        return Ok(());
+    }
+
+    // For other errors, log but don't fail - the JWT endpoint will give a clearer error
+    // if there's actually a problem
+    if res.status_code >= 400 {
+        log::warn!(
+            "signUp returned status {}: {}",
+            res.status_code,
+            response_body
+        );
+    }
+
+    Ok(())
 }
 
 pub fn org_available<T, S>(token: T, name: S) -> Result<bool>

@@ -59,6 +59,8 @@ pub struct OAuthTokens {
     pub provider: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
 }
 
 /// Request payload for Firebase createAuthUri
@@ -98,6 +100,7 @@ struct SignInWithIdpResponse {
     refresh_token: String,
     expires_in: String,
     local_id: Option<String>,
+    email: Option<String>,
 }
 
 /// Response from Firebase signInWithIdp when MFA is required
@@ -107,6 +110,7 @@ struct SignInWithIdpMfaResponse {
     mfa_pending_credential: String,
     mfa_info: Vec<MfaFactorInfo>,
     local_id: Option<String>,
+    email: Option<String>,
 }
 
 /// MFA factor information
@@ -166,6 +170,7 @@ struct MfaSession {
     factor_display_name: String,
     provider: OAuthProvider,
     local_id: Option<String>,
+    email: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -334,6 +339,7 @@ fn run_callback_server(
                     &code,
                     session.provider,
                     session.local_id.as_deref(),
+                    session.email.as_deref(),
                 ) {
                     Ok(tokens) => {
                         // MFA successful - respond with success page HTML
@@ -512,6 +518,7 @@ fn exchange_code_for_tokens(
                 .unwrap_or_else(|| "your authenticator app".to_string()),
             provider,
             local_id: mfa_response.local_id,
+            email: mfa_response.email,
         };
 
         return Ok(ExchangeResult::MfaRequired(session));
@@ -536,6 +543,7 @@ fn exchange_code_for_tokens(
         expires_at,
         provider: provider.as_firebase_id().to_string(),
         uid: data.local_id,
+        email: data.email,
     }))
 }
 
@@ -587,6 +595,7 @@ fn finalize_mfa(
     verification_code: &str,
     provider: OAuthProvider,
     local_id: Option<&str>,
+    email: Option<&str>,
 ) -> Result<OAuthTokens> {
     let api_key = get_embedded_default("firebase_api_key");
     let url = format!("{MFA_FINALIZE}?key={api_key}");
@@ -660,6 +669,7 @@ fn finalize_mfa(
         expires_at,
         provider: provider.as_firebase_id().to_string(),
         uid: local_id.map(String::from),
+        email: email.map(String::from),
     })
 }
 
