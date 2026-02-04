@@ -59,6 +59,15 @@ bash <(curl -fsSL https://get.viberails.io/install.sh)
 irm https://get.viberails.io/install.ps1 | iex
 ```
 
+> **Security Note:** We get it - piping curl to bash requires trust. You can
+> [review the install script](https://get.viberails.io/install.sh) before running,
+> or download binaries directly:
+> - [Linux x64](https://get.viberails.io/viberails-linux-x64) | [Linux ARM64](https://get.viberails.io/viberails-linux-arm64)
+> - [macOS x64](https://get.viberails.io/viberails-macos-x64) | [macOS ARM64](https://get.viberails.io/viberails-macos-arm64)
+> - [Windows x64](https://get.viberails.io/viberails-windows-x64.exe) | [Windows ARM64](https://get.viberails.io/viberails-windows-arm64.exe)
+>
+> Verify checksums via [release.json](https://get.viberails.io/release.json).
+
 This downloads Viberails and launches the interactive setup. You'll be prompted to:
 1. Select an OAuth provider (Google, Microsoft, or GitHub)
 2. Enter your team name
