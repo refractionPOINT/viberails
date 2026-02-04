@@ -11,6 +11,7 @@ use crate::{
     common::{EXECUTABLE_NAME, display_authorize_help, print_header, project_config_dir},
     config::Config,
     providers::{ProviderRegistry, select_providers, select_providers_for_uninstall},
+    tui::{MessageStyle, message_prompt},
 };
 
 const LABEL_WIDTH: usize = 20;
@@ -254,6 +255,12 @@ pub fn install() -> Result<()> {
     }
 
     display_results(&all_results);
+
+    message_prompt(
+        " Installation Complete ",
+        "Hooks installed successfully! Your AI coding tools will now use viberails.",
+        MessageStyle::Success,
+    )?;
 
     Ok(())
 }

@@ -183,7 +183,8 @@ fn show_menu() -> Result<()> {
                     wait_for_keypress();
                     continue;
                 }
-                install()
+                install()?;
+                return Ok(()); // Exit after successful installation
             }
             Some(MenuAction::JoinTeam) => {
                 let url = text_prompt::<fn(&str) -> viberails::tui::ValidationResult>(
@@ -203,7 +204,8 @@ fn show_menu() -> Result<()> {
                     wait_for_keypress();
                     continue;
                 }
-                install()
+                install()?;
+                return Ok(()); // Exit after successful installation
             }
             Some(MenuAction::InstallHooks) => {
                 if !is_authorized() {
@@ -214,9 +216,8 @@ fn show_menu() -> Result<()> {
                     );
                     continue;
                 }
-                let r = install();
-                wait_for_keypress();
-                r
+                install()?;
+                return Ok(()); // Exit after successful installation
             }
             Some(MenuAction::UninstallHooks) => {
                 let r = uninstall_hooks();
