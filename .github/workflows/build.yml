@@ -224,9 +224,8 @@ jobs:
     code-sign:
         needs: dist
         runs-on: ubuntu-latest
-        # Use 'release' environment for manual approval gate before accessing signing secrets.
-        # Configure this environment in repo Settings -> Environments with required reviewers.
-        environment: release
+        # No environment gate - signing runs automatically on tags.
+        # Approval is required on the release job before publishing.
         if: always() && needs.dist.result == 'success' && (startsWith(github.ref, 'refs/tags/') || inputs.code_signing == true)
 
         steps:
