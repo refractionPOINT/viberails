@@ -28,6 +28,7 @@ from lc_py.lc_gsifile import LCGSIFile  # nopep8
 from lc_py.lc_py_utils import LcUtil  # nopep8
 
 DEF_SIGN_TIMEOUT = (20 * 60)
+ENV_BASE64_KEY_NAMES = ("CODE_SIGNING_KEY_B64", "CODE_SIGNING_KEY")
 
 
 class SignFileType(enum.Enum):
@@ -45,6 +46,25 @@ class SigningRequest:
 
 class InvalidArgumentError(Exception):
     pass
+
+
+def get_env_base64_key() -> str | None:
+    """Gets the base64 key from environment variables.
+
+    Parameters:
+        None.
+
+    Return:
+        The base64 key if present, otherwise None.
+    """
+    # Prefer explicitly named vars to reduce accidental leakage via env.
+    for env_name in ENV_BASE64_KEY_NAMES:
+        env_value = os.environ.get(env_name)
+        if env_value:
+            return env_value
+    return None
+
+
 
 
 class SigningPublisher:
@@ -211,11 +231,12 @@ def main() -> int:
     parser.add_argument("-k",
                         "--key",
                         type=str,
-                        help="Google service account key file")
+                        help="DEPRECATED: Use env var instead.")
 
     parser.add_argument("--base64-key",
                         type=str,
-                        help="Base64 encoded key")
+                        help="DEPRECATED: Use env var instead.")
+
 
     parser.add_argument("-v",
                         "--verbose",
@@ -283,13 +304,25 @@ def main() -> int:
         LcUtil.printkv("Input File Hash", LcUtil.md5_file(args.input))
         LcUtil.printkv("Signing Type", args.sign_type)
 
+        env_base64_key = get_env_base64_key()
+
         if args.key is not None:
-            LcUtil.printkv("Google SA Key File", args.key)
-        elif args.base64_key is not None:
-            LcUtil.printkv("Google SA Key String",
-                           args.base64_key[:30] + "...")
-        else:
-            raise InvalidArgumentError("--key or --key--string is missing")
+            # Warn to discourage CLI secrets while still failing closed.
+            logging.warning("--key was provided via CLI; env vars are preferred")
+            raise InvalidArgumentError(
+                "--key is disabled; use env var instead")
+        if args.base64_key is not None:
+            # Warn to discourage CLI secrets while still failing closed.
+            logging.warning("--base64-key was provided via CLI; env vars are preferred")
+            raise InvalidArgumentError(
+                "--base64-key is disabled; use env var instead")
+
+        if env_base64_key is None:
+            raise InvalidArgumentError(
+                "env var is missing")
+        if env_base64_key.strip() == "":
+            raise InvalidArgumentError(
+                "env var is empty")
 
         LcUtil.printkv("Project", args.project)
         LcUtil.printkv("Topic", args.topic)
@@ -301,11 +334,12 @@ def main() -> int:
 
         with tempfile.TemporaryDirectory(prefix="pub_client_") as td:
 
-            if args.key is not None:
-                key_file = args.key
-            else:
+            if env_base64_key is not None:
+                # Write the env-provided key to a temp file for GCP auth.
                 key_file = os.path.join(td, "key.json")
-                LcUtil.b64_to_file(args.base64_key, key_file)
+                LcUtil.b64_to_file(env_base64_key, key_file)
+            else:
+                raise InvalidArgumentError("env var is missing")
 
             if args.sign_type == "sensor":
                 sign_type = SignFileType.SENSOR_ARCHIVE
