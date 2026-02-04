@@ -5,7 +5,7 @@ use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
 use crate::tui::{TerminalApp, theme::Theme};
@@ -114,8 +114,10 @@ impl<'a> Message<'a> {
             MessageStyle::Success => self.theme.success,
         };
 
-        let content = Paragraph::new(Line::from(Span::styled(self.content, content_style)))
-            .alignment(Alignment::Center);
+        let content = Paragraph::new(self.content)
+            .style(content_style)
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true });
         frame.render_widget(content, chunks[0]);
 
         // Help text
