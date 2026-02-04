@@ -223,7 +223,8 @@ jobs:
                   python-version: "3.x"
 
             - name: Install signing dependencies
-              run: pip install -r signing/requirements.txt
+              # Use lockfile with hashes for supply chain security
+              run: pip install --require-hashes -r signing/requirements.lock
 
             - name: Code sign
               run: python signing/client.py --timeout 600 -i viberails-dist.zip
