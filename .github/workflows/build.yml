@@ -318,3 +318,71 @@ jobs:
                   path: dist
                   destination: get-viberails/archive/${{ github.ref_name }}
                   parent: false
+
+            - name: Verify uploaded release.json
+              run: |
+                  # Allow time for CDN propagation
+                  sleep 5
+
+                  BASE_URL="https://get.viberails.io"
+                  TAG="${{ github.ref_name }}"
+
+                  echo "=== Verifying latest release.json ==="
+                  LATEST_JSON=$(curl -fsSL "${BASE_URL}/release.json")
+
+                  # Verify it's valid JSON
+                  if ! echo "$LATEST_JSON" | jq empty 2>/dev/null; then
+                      echo "ERROR: latest release.json is not valid JSON"
+                      exit 1
+                  fi
+                  echo "✓ Valid JSON"
+
+                  # Verify version matches tag
+                  REMOTE_VERSION=$(echo "$LATEST_JSON" | jq -r '.version')
+                  if [ "$REMOTE_VERSION" != "$TAG" ]; then
+                      echo "ERROR: Version mismatch - expected '$TAG', got '$REMOTE_VERSION'"
+                      exit 1
+                  fi
+                  echo "✓ Version matches: $REMOTE_VERSION"
+
+                  # Verify checksums match local files
+                  echo "Verifying checksums..."
+                  for file in dist/viberails-*; do
+                      filename=$(basename "$file")
+                      local_checksum=$(sha256sum "$file" | cut -d' ' -f1)
+                      remote_checksum=$(echo "$LATEST_JSON" | jq -r --arg f "$filename" '.checksums[$f] // empty')
+
+                      if [ -z "$remote_checksum" ]; then
+                          echo "ERROR: No checksum found for $filename in remote release.json"
+                          exit 1
+                      fi
+
+                      if [ "$local_checksum" != "$remote_checksum" ]; then
+                          echo "ERROR: Checksum mismatch for $filename"
+                          echo "  Local:  $local_checksum"
+                          echo "  Remote: $remote_checksum"
+                          exit 1
+                      fi
+                      echo "✓ $filename checksum verified"
+                  done
+
+                  echo ""
+                  echo "=== Verifying versioned release.json ==="
+                  VERSIONED_JSON=$(curl -fsSL "${BASE_URL}/archive/${TAG}/release.json")
+
+                  # Verify it's valid JSON and matches latest
+                  if ! echo "$VERSIONED_JSON" | jq empty 2>/dev/null; then
+                      echo "ERROR: versioned release.json is not valid JSON"
+                      exit 1
+                  fi
+                  echo "✓ Valid JSON"
+
+                  # Compare versioned with latest (should be identical)
+                  if [ "$LATEST_JSON" != "$VERSIONED_JSON" ]; then
+                      echo "ERROR: Versioned release.json differs from latest"
+                      exit 1
+                  fi
+                  echo "✓ Versioned release.json matches latest"
+
+                  echo ""
+                  echo "=== All verifications passed ==="
