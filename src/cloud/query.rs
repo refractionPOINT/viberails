@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
 use anyhow::{Context, Result, bail};
 use derive_more::Display;
@@ -251,6 +251,9 @@ impl<'a> CloudQuery<'a> {
         }
 
         debug!("Sending notification to: {}", self.url);
+
+        // Measure API round-trip latency
+        let start = Instant::now();
         let ret = minreq::post(&self.url)
             .with_timeout(CLOUD_API_TIMEOUT_SECS)
             .with_header("User-Agent", user_agent())
@@ -258,14 +261,18 @@ impl<'a> CloudQuery<'a> {
             .with_json(&req)
             .context("Failed to serialize notification request")?
             .send();
+        let latency_ms = start.elapsed().as_millis();
 
         match &ret {
             Ok(response) => {
                 debug!("Notification response: status={}", response.status_code);
-                info!("Notification sent successfully");
+                info!(
+                    "Notification sent (status={}, rtt={}ms)",
+                    response.status_code, latency_ms
+                );
             }
             Err(e) => {
-                error!("Notification to {} failed: {e}", self.url);
+                error!("Notification failed (rtt={latency_ms}ms): {e}");
             }
         }
 
@@ -298,6 +305,8 @@ impl<'a> CloudQuery<'a> {
         debug!("Sending authorization to: {}", self.url);
         debug!("Timeout: {CLOUD_API_TIMEOUT_SECS}s");
 
+        // Measure API round-trip latency
+        let start = Instant::now();
         let res = minreq::post(&self.url)
             .with_timeout(CLOUD_API_TIMEOUT_SECS)
             .with_header("User-Agent", user_agent())
@@ -306,8 +315,12 @@ impl<'a> CloudQuery<'a> {
             .context("Failed to serialize authorization request")?
             .send()
             .with_context(|| format!("Failed to connect to hook server at {}", self.url))?;
+        let latency_ms = start.elapsed().as_millis();
 
-        debug!("Authorization response: status={}", res.status_code);
+        debug!(
+            "Authorization response: status={}, rtt={}ms",
+            res.status_code, latency_ms
+        );
 
         if !(200..300).contains(&res.status_code) {
             let error_body = res.as_str().unwrap_or("Unknown error");
@@ -325,7 +338,10 @@ impl<'a> CloudQuery<'a> {
             .json()
             .context("Authorization server returned invalid JSON response")?;
 
-        info!("Authorization result: allow={} reason={:?}", data.success, data.reason);
+        info!(
+            "Authorization result: allow={} reason={:?} (rtt={}ms)",
+            data.success, data.reason, latency_ms
+        );
 
         let verdict = if data.success {
             CloudVerdict::Allow
