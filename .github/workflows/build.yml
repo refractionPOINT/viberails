@@ -2,10 +2,10 @@ name: Build
 
 on:
     push:
-        branches: ["**"]
+        branches: ["master"]
         tags: ["v*"]
     pull_request:
-        branches: ["**"]
+        branches: ["master"]
     workflow_dispatch:
         inputs:
             code_signing:
