@@ -109,6 +109,8 @@ jobs:
             - name: Run e2e tests
               timeout-minutes: 5
               shell: bash
+              env:
+                  TERM: xterm
               run: |
                   chmod +x tests/e2e/*.bats tests/e2e/*.sh tests/e2e/*.bash 2>/dev/null || true
                   bats --timing tests/e2e/*.bats
