@@ -56,6 +56,16 @@ pub struct UserConfig {
     #[serde(default)]
     #[builder(default = false)]
     pub debug: bool,
+    /// Enable automatic upgrade checks on exit (default: true).
+    ///
+    /// When enabled, viberails performs a silent background check for updates
+    /// before exiting (after command execution completes).
+    ///
+    /// Note: There is no CLI command to toggle this setting. To disable auto-upgrades,
+    /// manually edit `~/.config/viberails/config.json` and set `"auto_upgrade": false`.
+    #[serde(default = "default_true")]
+    #[builder(default = true)]
+    pub auto_upgrade: bool,
 }
 
 fn default_true() -> bool {
@@ -83,6 +93,7 @@ impl Default for UserConfig {
             audit_tool_use: true,
             audit_prompts: true,
             debug: false,
+            auto_upgrade: true,
         }
     }
 }
@@ -329,6 +340,7 @@ pub fn show_configuration() -> Result<()> {
         ConfigEntry::bool("Fail Open", config.user.fail_open),
         ConfigEntry::bool("Audit Tool Use", config.user.audit_tool_use),
         ConfigEntry::bool("Audit Prompts", config.user.audit_prompts),
+        ConfigEntry::bool("Auto Upgrade", config.user.auto_upgrade),
         ConfigEntry::new("Install ID", &config.install_id),
         ConfigEntry::new("Organization", &config.org.name),
         ConfigEntry::new("Organization URL", &config.org.url),
@@ -458,6 +470,31 @@ pub fn set_debug_mode(enable: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Check if auto-upgrade is enabled in the configuration.
+///
+/// Auto-upgrade is enabled by default. When enabled, viberails performs a silent
+/// background check for updates before exiting (after command execution completes).
+///
+/// Note: There is no public CLI command to enable/disable this setting.
+/// To disable auto-upgrades, manually edit `~/.config/viberails/config.json`:
+/// ```json
+/// {
+///   "user": {
+///     "auto_upgrade": false
+///   }
+/// }
+/// ```
+///
+/// Parameters: None
+///
+/// Returns: true if auto-upgrade is enabled (default), false if disabled
+#[must_use]
+pub fn is_auto_upgrade_enabled() -> bool {
+    Config::load()
+        .map(|config| config.user.auto_upgrade)
+        .unwrap_or(true) // Default to enabled if config can't be loaded
 }
 
 /// Get the path to the debug log directory.

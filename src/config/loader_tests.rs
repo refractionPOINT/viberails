@@ -43,12 +43,14 @@ fn test_user_config_audit_fields_serialization() {
         audit_tool_use: false,
         audit_prompts: false,
         debug: false,
+        auto_upgrade: true,
     };
     let json = serde_json::to_string(&config).unwrap();
 
     assert!(json.contains("\"audit_tool_use\":false"));
     assert!(json.contains("\"audit_prompts\":false"));
     assert!(json.contains("\"debug\":false"));
+    assert!(json.contains("\"auto_upgrade\":true"));
 
     let deserialized: UserConfig = serde_json::from_str(&json).unwrap();
     assert!(!deserialized.audit_tool_use);
@@ -195,6 +197,7 @@ fn test_debug_can_be_enabled() {
         audit_tool_use: true,
         audit_prompts: true,
         debug: true,
+        auto_upgrade: true,
     };
 
     let json = serde_json::to_string(&config).unwrap();

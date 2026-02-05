@@ -12,7 +12,7 @@ mod upgrade;
 pub use common::{PROJECT_NAME, PROJECT_VERSION};
 pub use config::{
     ConfigureArgs, JoinTeamArgs, clean_debug_logs, configure, get_debug_log_path, is_authorized,
-    join_team, set_debug_mode, show_configuration,
+    is_auto_upgrade_enabled, join_team, set_debug_mode, show_configuration,
 };
 pub use hooks::{codex_hook, hook, install, list, uninstall, uninstall_hooks};
 pub use logging::Logging;

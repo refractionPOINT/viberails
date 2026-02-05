@@ -11,9 +11,8 @@ use log::warn;
 use viberails::{
     ConfigureArgs, JoinTeamArgs, Logging, LoginArgs, MenuAction, PROJECT_NAME, PROJECT_VERSION,
     Providers, UpgradeResult, clean_debug_logs, codex_hook, configure, get_debug_log_path,
-    get_menu_options, hook,
-    install, is_authorized, is_browser_available, join_team, list, login, open_browser,
-    poll_upgrade, set_debug_mode, show_configuration,
+    get_menu_options, hook, install, is_authorized, is_auto_upgrade_enabled, is_browser_available,
+    join_team, list, login, open_browser, poll_upgrade, set_debug_mode, show_configuration,
     tui::{MessageStyle, message_prompt, select_prompt_with_shortcuts, text_prompt},
     uninstall, uninstall_hooks, upgrade,
 };
@@ -373,11 +372,12 @@ fn main() -> Result<()> {
     };
 
     //
-    // This'll try to upgrade every x hours on exit.
+    // This'll try to upgrade every x hours on exit (if enabled).
     // Skip for hook callbacks - they must exit quickly to avoid blocking
     // the AI tool (e.g., Claude Code waits for the hook process to exit).
     //
     if !is_callback
+        && is_auto_upgrade_enabled()
         && let Err(e) = poll_upgrade()
     {
         warn!("upgrade failure: {e}");
