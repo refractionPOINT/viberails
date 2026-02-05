@@ -1,9 +1,11 @@
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::{fs, io::Write, path::Path};
 
 use crate::tui::{ConfigEntry, ConfigView};
 use anyhow::{Context, Result};
 use bon::Builder;
-use log::info;
+use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -117,47 +119,202 @@ impl Config {
         }
     }
 
+    /// Saves the configuration to disk with secure file permissions.
+    ///
+    /// On Unix systems, the config file is created with mode 0600 (owner read/write only)
+    /// to protect sensitive data like install IDs and org credentials.
+    ///
+    /// Parameters: None (uses self)
+    ///
+    /// Returns: `Ok(())` on success, Err on serialization or I/O failure
     pub fn save(&self) -> Result<()> {
+        let config_dir = project_config_dir()?;
+        let config_file = config_dir.join(CONFIG_FILE_NAME);
+        self.save_to_path(&config_file)
+    }
+
+    /// Saves the configuration to a specific path with secure file permissions.
+    ///
+    /// On Unix systems, the config file is created with mode 0600 (owner read/write only)
+    /// to protect sensitive data like install IDs and org credentials.
+    ///
+    /// Parameters:
+    ///   - `path`: Path to save the config file to
+    ///
+    /// Returns: `Ok(())` on success, Err on serialization or I/O failure
+    pub fn save_to_path(&self, path: &Path) -> Result<()> {
         let config_string =
             serde_json::to_string_pretty(self).context("Unable to serialize configuration data")?;
 
-        let config_dir = project_config_dir()?;
-        let config_file = config_dir.join(CONFIG_FILE_NAME);
+        let file_exists = path.exists();
+        debug!(
+            "Saving config to {} (exists={})",
+            path.display(),
+            file_exists
+        );
 
+        // Create file with secure permissions (0600 = owner read/write only on Unix)
+        #[cfg(unix)]
+        let mut fd = {
+            use std::os::unix::fs::PermissionsExt;
+
+            debug!("Creating config file with mode 0600");
+            let fd = fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .create(true)
+                .mode(0o600) // Set permissions atomically at file creation
+                .open(path)
+                .with_context(|| format!("Unable to write {}", path.display()))?;
+
+            // Check and fix permissions if file already existed
+            if file_exists && let Ok(metadata) = fs::metadata(path) {
+                let current_mode = metadata.permissions().mode() & 0o777;
+                if current_mode != 0o600 {
+                    debug!(
+                        "Fixing config file permissions (current={current_mode:o}, target=0600)"
+                    );
+                }
+            }
+
+            // Ensure permissions are correct even if file already existed
+            let perms = fs::Permissions::from_mode(0o600);
+            fs::set_permissions(path, perms).with_context(|| {
+                format!(
+                    "Unable to set permissions on config file: {}",
+                    path.display()
+                )
+            })?;
+
+            fd
+        };
+
+        #[cfg(not(unix))]
         let mut fd = fs::OpenOptions::new()
             .write(true)
             .truncate(true)
             .create(true)
-            .open(&config_file)
-            .with_context(|| format!("Unable to write {}", config_file.display()))?;
+            .open(path)
+            .with_context(|| format!("Unable to write {}", path.display()))?;
 
-        fd.write_all(config_string.as_bytes()).with_context(|| {
-            format!("Failed to write configuration to {}", config_file.display())
-        })?;
+        fd.write_all(config_string.as_bytes())
+            .with_context(|| format!("Failed to write configuration to {}", path.display()))?;
 
+        debug!("Config saved successfully to {}", path.display());
         Ok(())
     }
 
+    /// Loads the configuration from disk, fixing permissions on existing files.
+    ///
+    /// On Unix, verifies and fixes config file permissions to 0600 (owner read/write only)
+    /// for existing installations that may have been created with insecure permissions.
+    ///
+    /// Parameters: None
+    ///
+    /// Returns: Loaded config or new default config if file doesn't exist
     pub fn load() -> Result<Self> {
         let config_dir = project_config_dir()?;
         let config_file = config_dir.join("config.json");
 
+        debug!("Loading config from {}", config_file.display());
+
         // Try to load existing config, create new one if file doesn't exist
         // This avoids TOCTOU race between exists() check and read
         match Config::load_existing(&config_file) {
-            Ok(config) => Ok(config),
+            Ok(config) => {
+                debug!("Config loaded successfully from {}", config_file.display());
+                // Fix permissions on existing config files (lazy upgrade for old installations)
+                fix_config_file_permissions(&config_file)?;
+                Ok(config)
+            }
             Err(e) => {
                 // Check if the error is due to file not existing
                 if config_file.exists() {
                     // File exists but we couldn't load it - propagate the error
+                    debug!("Config file exists but failed to load: {e}");
                     Err(e)
                 } else {
                     // File doesn't exist - create new config
+                    debug!("Config file not found, creating new config");
                     Ok(Config::create_new())
                 }
             }
         }
     }
+}
+
+/// Fixes config file permissions to secure mode (0600 on Unix).
+///
+/// This ensures existing installations get upgraded to secure permissions
+/// without requiring a config save operation.
+///
+/// Parameters:
+///   - `path`: Path to the config file
+///
+/// Returns: `Ok(())` on success, Err on permission change failure
+#[cfg(unix)]
+pub(crate) fn fix_config_file_permissions(path: &std::path::Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Check current permissions before fixing
+    if let Ok(metadata) = fs::metadata(path) {
+        let current_mode = metadata.permissions().mode() & 0o777;
+        if current_mode == 0o600 {
+            debug!(
+                "Config file permissions already secure: {} (mode=0600)",
+                path.display()
+            );
+            return Ok(());
+        }
+        debug!(
+            "Fixing config file permissions: {} (current={current_mode:o}, target=0600)",
+            path.display()
+        );
+    }
+
+    let perms = fs::Permissions::from_mode(0o600);
+    fs::set_permissions(path, perms).with_context(|| {
+        format!(
+            "Unable to set secure permissions on config file: {}",
+            path.display()
+        )
+    })?;
+
+    debug!("Config file permissions fixed to 0600: {}", path.display());
+    Ok(())
+}
+
+/// No-op on non-Unix systems.
+#[cfg(not(unix))]
+pub(crate) fn fix_config_file_permissions(_path: &std::path::Path) -> Result<()> {
+    Ok(())
+}
+
+/// Reads the debug flag from config without triggering permission fixes.
+///
+/// This is used during logging initialization to avoid a chicken-and-egg problem:
+/// we need to know if debug mode is enabled to initialize logging, but `Config::load()`
+/// generates debug messages that would be lost if logging isn't initialized yet.
+///
+/// Parameters: None
+///
+/// Returns: true if debug mode is enabled, false otherwise (including on any error)
+#[must_use]
+pub fn is_debug_mode_enabled() -> bool {
+    // Get config directory path without creating/fixing permissions
+    let Some(config_dir) = dirs::config_dir() else {
+        return false;
+    };
+    let config_file = config_dir.join(PROJECT_NAME).join(CONFIG_FILE_NAME);
+
+    // Try to read and parse config file directly
+    let Ok(content) = fs::read_to_string(&config_file) else {
+        return false;
+    };
+
+    // Parse just enough to get the debug flag
+    let config: Result<Config, _> = serde_json::from_str(&content);
+    config.is_ok_and(|c| c.user.debug)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -304,8 +461,9 @@ pub fn get_debug_log_path() -> Result<std::path::PathBuf> {
 
     #[cfg(not(unix))]
     {
-        fs::create_dir_all(&debug_dir)
-            .with_context(|| format!("Unable to create debug directory: {}", debug_dir.display()))?;
+        fs::create_dir_all(&debug_dir).with_context(|| {
+            format!("Unable to create debug directory: {}", debug_dir.display())
+        })?;
     }
 
     // Return directory - individual log files have unique timestamped names

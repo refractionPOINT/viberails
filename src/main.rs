@@ -96,11 +96,19 @@ enum Command {
 }
 
 fn init_logging(verbose: bool) -> Result<()> {
+    // Check debug mode from config (lightweight check, no permission fixes)
+    let debug_mode = verbose || viberails::config::is_debug_mode_enabled();
+
     if verbose {
-        Logging::new().start()
+        // Verbose flag: log to stderr
+        Logging::new().with_debug_mode(debug_mode).start()
     } else {
+        // Normal: log to file
         let file_name = format!("{PROJECT_NAME}.log");
-        Logging::new().with_file(file_name).start()
+        Logging::new()
+            .with_file(file_name)
+            .with_debug_mode(debug_mode)
+            .start()
     }
 }
 
@@ -131,18 +139,28 @@ fn wait_for_keypress() {
 /// Initialize logging for callback commands with debug mode support.
 /// Checks config for debug flag and enables verbose logging if set.
 ///
+/// Uses a lightweight check for debug mode first (without triggering permission
+/// fixes), then initializes logging, then loads full config (which may fix
+/// permissions and emit debug messages).
+///
 /// Parameters: None
 ///
 /// Returns: Result indicating success or failure
 fn init_callback_logging() -> Result<()> {
-    // Load config to check debug mode - use default if config doesn't exist yet
-    let debug_mode = viberails::config::Config::load().is_ok_and(|c| c.user.debug);
+    // Check debug mode without triggering permission fixes (avoids losing debug messages)
+    let debug_mode = viberails::config::is_debug_mode_enabled();
 
     let file_name = format!("{PROJECT_NAME}.log");
     Logging::new()
         .with_file(file_name)
         .with_debug_mode(debug_mode)
-        .start()
+        .start()?;
+
+    // Now load config properly - this may fix permissions and emit debug messages
+    // which will be captured by the now-initialized logger
+    let _ = viberails::config::Config::load();
+
+    Ok(())
 }
 
 /// Display the interactive menu and execute the selected action in a loop.

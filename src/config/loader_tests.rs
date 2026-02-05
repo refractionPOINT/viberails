@@ -299,11 +299,7 @@ fn test_get_debug_log_path_fixes_insecure_permissions() {
 
     // Verify permissions changed - some CI environments (macOS sandbox) may prevent
     // setting more permissive modes, so skip the rest of the test if we can't
-    let mode_before = std::fs::metadata(&debug_dir)
-        .unwrap()
-        .permissions()
-        .mode()
-        & 0o777;
+    let mode_before = std::fs::metadata(&debug_dir).unwrap().permissions().mode() & 0o777;
 
     if mode_before != 0o755 {
         // Platform restrictions prevent setting insecure permissions (e.g., macOS sandbox)
@@ -319,11 +315,7 @@ fn test_get_debug_log_path_fixes_insecure_permissions() {
     let _ = get_debug_log_path().unwrap();
 
     // Verify permissions are now secure
-    let mode_after = std::fs::metadata(&debug_dir)
-        .unwrap()
-        .permissions()
-        .mode()
-        & 0o777;
+    let mode_after = std::fs::metadata(&debug_dir).unwrap().permissions().mode() & 0o777;
     assert_eq!(
         mode_after, 0o700,
         "Debug directory permissions should be fixed to 0o700, got: {:o}",
@@ -392,7 +384,9 @@ fn test_clean_logs_in_dir_empty_directory() {
 fn test_clean_logs_in_dir_nonexistent_directory() {
     use super::loader::clean_logs_in_dir;
 
-    let result = clean_logs_in_dir(std::path::Path::new("/nonexistent/path/that/does/not/exist"));
+    let result = clean_logs_in_dir(std::path::Path::new(
+        "/nonexistent/path/that/does/not/exist",
+    ));
 
     // Should succeed with 0 files (not error)
     assert!(result.is_ok());
@@ -491,10 +485,12 @@ fn test_parse_team_url_rejects_invalid_domain() {
     let url = format!("https://evil.example.com/org-id/{PROJECT_NAME}/secret");
     let result = parse_team_url(&url);
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("LimaCharlie hook URL"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("LimaCharlie hook URL")
+    );
 }
 
 #[test]
@@ -503,10 +499,12 @@ fn test_parse_team_url_rejects_similar_domain() {
     let url = format!("https://hook.limacharlie.io.evil.com/org-id/{PROJECT_NAME}/secret");
     let result = parse_team_url(&url);
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("LimaCharlie hook URL"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("LimaCharlie hook URL")
+    );
 }
 
 #[test]
@@ -515,8 +513,166 @@ fn test_parse_team_url_rejects_bare_domain() {
     let url = format!("https://hook.limacharlie.io/org-id/{PROJECT_NAME}/secret");
     let result = parse_team_url(&url);
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("LimaCharlie hook URL"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("LimaCharlie hook URL")
+    );
+}
+
+// Tests for Config::save_to_path() secure permissions
+
+#[cfg(unix)]
+#[test]
+fn test_config_save_to_path_creates_file_with_secure_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_file = temp_dir.path().join("config.json");
+
+    let config = Config {
+        user: UserConfig::default(),
+        install_id: "test-install-id".to_string(),
+        org: LcOrg {
+            oid: "test-oid".to_string(),
+            name: "test-name".to_string(),
+            url: "https://test.hook.limacharlie.io/org/viberails/secret".to_string(),
+        },
+    };
+
+    // Call actual save_to_path method
+    config.save_to_path(&config_file).unwrap();
+
+    // Verify file exists and has correct permissions
+    let metadata = std::fs::metadata(&config_file).unwrap();
+    let mode = metadata.permissions().mode() & 0o777;
+
+    assert_eq!(
+        mode, 0o600,
+        "Config file should have 0o600 permissions, got: {:o}",
+        mode
+    );
+
+    // Verify content can be loaded back
+    let loaded = Config::load_existing(&config_file).unwrap();
+    assert_eq!(loaded.install_id, "test-install-id");
+}
+
+#[cfg(unix)]
+#[test]
+fn test_config_save_to_path_fixes_insecure_file_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_file = temp_dir.path().join("config.json");
+
+    // Create file with insecure permissions first
+    std::fs::write(&config_file, "{}").unwrap();
+    std::fs::set_permissions(&config_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    // Verify we were able to set insecure permissions
+    let mode_before = std::fs::metadata(&config_file)
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+
+    if mode_before != 0o644 {
+        // Platform restrictions prevent setting insecure permissions
+        eprintln!(
+            "Skipping test: platform prevented setting insecure permissions (got {:o}, expected 0o644)",
+            mode_before
+        );
+        return;
+    }
+
+    let config = Config {
+        user: UserConfig::default(),
+        install_id: "test-install-id".to_string(),
+        org: LcOrg {
+            oid: "test-oid".to_string(),
+            name: "test-name".to_string(),
+            url: "https://test.hook.limacharlie.io/org/viberails/secret".to_string(),
+        },
+    };
+
+    // Call actual save_to_path method - should fix permissions
+    config.save_to_path(&config_file).unwrap();
+
+    // Verify permissions are now secure
+    let mode_after = std::fs::metadata(&config_file)
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(
+        mode_after, 0o600,
+        "Config file permissions should be fixed to 0o600, got: {:o}",
+        mode_after
+    );
+
+    // Verify content is correct
+    let loaded = Config::load_existing(&config_file).unwrap();
+    assert_eq!(loaded.install_id, "test-install-id");
+}
+
+#[cfg(unix)]
+#[test]
+fn test_fix_config_file_permissions_on_load() {
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::loader::fix_config_file_permissions;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_file = temp_dir.path().join("config.json");
+
+    // Create a valid config using save_to_path first (creates with secure perms)
+    let config = Config {
+        user: UserConfig::default(),
+        install_id: "test-install-id".to_string(),
+        org: LcOrg {
+            oid: "test-oid".to_string(),
+            name: "test-name".to_string(),
+            url: "https://test.hook.limacharlie.io/org/viberails/secret".to_string(),
+        },
+    };
+    config.save_to_path(&config_file).unwrap();
+
+    // Set insecure permissions (simulating old installation)
+    std::fs::set_permissions(&config_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    // Verify we were able to set insecure permissions
+    let mode_before = std::fs::metadata(&config_file)
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+
+    if mode_before != 0o644 {
+        eprintln!(
+            "Skipping test: platform prevented setting insecure permissions (got {:o}, expected 0o644)",
+            mode_before
+        );
+        return;
+    }
+
+    // Call fix_config_file_permissions (what happens on Config::load)
+    fix_config_file_permissions(&config_file).unwrap();
+
+    // Verify permissions are now secure
+    let mode_after = std::fs::metadata(&config_file)
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(
+        mode_after, 0o600,
+        "Config file permissions should be fixed to 0o600 on load, got: {:o}",
+        mode_after
+    );
+
+    // Verify file is still readable
+    let loaded = Config::load_existing(&config_file).unwrap();
+    assert_eq!(loaded.install_id, "test-install-id");
 }
