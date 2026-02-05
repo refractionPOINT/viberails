@@ -14,7 +14,7 @@ use viberails::{
     get_menu_options, hook, install, is_authorized, is_auto_upgrade_enabled, is_browser_available,
     join_team, list, login, open_browser, poll_upgrade, set_debug_mode, show_configuration,
     tui::{MessageStyle, message_prompt, select_prompt_with_shortcuts, text_prompt},
-    uninstall, uninstall_hooks, upgrade,
+    uninstall_all, uninstall_hooks, upgrade,
 };
 
 #[derive(Parser)]
@@ -52,12 +52,11 @@ enum Command {
         #[arg(long, short)]
         providers: Option<String>,
     },
-    /// Uninstall hooks
-    Uninstall {
-        /// Provider IDs to uninstall (comma-separated: claude-code,cursor,gemini-cli,codex,opencode,openclaw) or "all" for all installed
-        #[arg(long, short)]
-        providers: Option<String>,
-    },
+    /// Uninstall hooks from selected providers (keeps binary and config)
+    #[command(visible_alias = "uninstall")]
+    UninstallHooks,
+    /// Uninstall everything: remove all hooks, binary, config, and data
+    UninstallAll,
 
     /// List Hooks
     #[command(visible_alias = "ls")]
@@ -276,8 +275,8 @@ fn show_menu() -> Result<()> {
                 wait_for_keypress();
                 r
             }
-            Some(MenuAction::UninstallFully) => {
-                let r = uninstall(None);
+            Some(MenuAction::UninstallAll) => {
+                let r = uninstall_all();
                 wait_for_keypress();
                 r
             }
@@ -325,7 +324,8 @@ fn main() -> Result<()> {
     let ret = match args.command {
         None => show_menu(),
         Some(Command::Install { providers }) => install(providers.as_deref()),
-        Some(Command::Uninstall { providers }) => uninstall(providers.as_deref()),
+        Some(Command::UninstallHooks) => uninstall_hooks(),
+        Some(Command::UninstallAll) => uninstall_all(),
         Some(Command::List) => {
             list();
             Ok(())

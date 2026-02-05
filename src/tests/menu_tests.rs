@@ -3,8 +3,10 @@ use viberails::{MenuAction, get_menu_options};
 #[test]
 fn test_menu_options_count() {
     let options = get_menu_options();
-    // Should have 7 menu options (user-facing only, not hidden callbacks)
-    assert_eq!(options.len(), 7);
+    // Should have 8 menu options (user-facing only, not hidden callbacks)
+    // Initialize Team, Join Team, Install Hooks, Remove Hooks, List Hooks,
+    // Show Configuration, Uninstall Everything, Quit
+    assert_eq!(options.len(), 8);
 }
 
 #[test]
@@ -42,9 +44,10 @@ fn test_menu_options_contains_all_actions() {
     assert!(actions.contains(&MenuAction::JoinTeam));
     assert!(actions.contains(&MenuAction::InstallHooks));
     assert!(actions.contains(&MenuAction::UninstallHooks));
+    assert!(actions.contains(&MenuAction::UninstallAll));
     assert!(actions.contains(&MenuAction::ListHooks));
     assert!(actions.contains(&MenuAction::ShowConfiguration));
-    assert!(actions.contains(&MenuAction::Upgrade));
+    assert!(actions.contains(&MenuAction::Quit));
 }
 
 #[test]
