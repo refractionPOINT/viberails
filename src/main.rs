@@ -10,7 +10,8 @@ use log::warn;
 
 use viberails::{
     ConfigureArgs, JoinTeamArgs, Logging, LoginArgs, MenuAction, PROJECT_NAME, PROJECT_VERSION,
-    Providers, clean_debug_logs, codex_hook, configure, get_debug_log_path, get_menu_options, hook,
+    Providers, UpgradeResult, clean_debug_logs, codex_hook, configure, get_debug_log_path,
+    get_menu_options, hook,
     install, is_authorized, is_browser_available, join_team, list, login, open_browser,
     poll_upgrade, set_debug_mode, show_configuration,
     tui::{MessageStyle, message_prompt, select_prompt_with_shortcuts, text_prompt},
@@ -55,8 +56,12 @@ enum Command {
     #[command(visible_alias = "ls")]
     List,
 
-    /// Upgrade
-    Upgrade,
+    /// Upgrade to the latest version
+    Upgrade {
+        /// Force upgrade even if already on latest version, skip version check
+        #[arg(long, short)]
+        force: bool,
+    },
 
     /// Enable or disable debug mode for troubleshooting hooks.
     /// Note: Debug logs accumulate over time (one file per hook invocation).
@@ -322,7 +327,27 @@ fn main() -> Result<()> {
         Some(Command::Configure(args)) => configure(&args),
         Some(Command::InitTeam(args)) => login(&args),
         Some(Command::JoinTeam(args)) => join_team(&args),
-        Some(Command::Upgrade) => upgrade(),
+        Some(Command::Upgrade { force }) => {
+            // CLI upgrade: verbose output to show user what's happening
+            match upgrade(force, true)? {
+                UpgradeResult::AlreadyLatest { version } => {
+                    println!("Already on latest version ({version}).");
+                }
+                UpgradeResult::Upgraded { from, to } => {
+                    println!("Successfully upgraded from {from} to {to}.");
+                }
+                UpgradeResult::Reinstalled { version } => {
+                    println!("Successfully reinstalled version {version}.");
+                }
+                UpgradeResult::Spawned => {
+                    println!("Upgrade process started.");
+                }
+                UpgradeResult::InProgress => {
+                    println!("Another upgrade is already in progress.");
+                }
+            }
+            Ok(())
+        }
         Some(Command::Debug { disable }) => {
             set_debug_mode(!disable)?;
             if !disable {

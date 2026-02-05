@@ -472,44 +472,58 @@ pub fn get_debug_log_path() -> Result<std::path::PathBuf> {
     let data_dir = crate::common::project_data_dir()?;
     let debug_dir = data_dir.join("debug");
 
-    // Create directory with restrictive permissions
-    // Use DirBuilder on Unix to set mode atomically, avoiding TOCTOU race
-    #[cfg(unix)]
-    {
-        use std::fs::DirBuilder;
-        use std::os::unix::fs::DirBuilderExt;
-        use std::os::unix::fs::PermissionsExt;
-
-        // DirBuilder with mode sets permissions atomically at creation
-        // recursive(true) handles parent directories
-        let mut builder = DirBuilder::new();
-        builder.recursive(true).mode(0o700);
-
-        // create() is idempotent - succeeds if dir exists with any permissions
-        // We then ensure permissions are correct (in case dir existed with wrong perms)
-        builder.create(&debug_dir).with_context(|| {
-            format!("Unable to create debug directory: {}", debug_dir.display())
-        })?;
-
-        // Always verify/fix permissions (handles pre-existing directories)
-        let perms = fs::Permissions::from_mode(0o700);
-        fs::set_permissions(&debug_dir, perms).with_context(|| {
-            format!(
-                "Unable to set permissions on debug directory: {}",
-                debug_dir.display()
-            )
-        })?;
-    }
-
-    #[cfg(not(unix))]
-    {
-        fs::create_dir_all(&debug_dir).with_context(|| {
-            format!("Unable to create debug directory: {}", debug_dir.display())
-        })?;
-    }
+    // Create directory with secure permissions (0o700 on Unix)
+    create_secure_directory(&debug_dir)?;
 
     // Return directory - individual log files have unique timestamped names
     Ok(debug_dir)
+}
+
+/// Creates a directory with secure permissions (0o700 on Unix).
+///
+/// This function creates the directory if it doesn't exist, and ensures
+/// permissions are set to owner-only (0o700) even if the directory
+/// already exists with different permissions.
+///
+/// Parameters:
+///   - `dir`: Path to the directory to create/secure
+///
+/// Returns: `Ok(())` on success, Err on I/O failure
+#[cfg(unix)]
+pub(crate) fn create_secure_directory(dir: &std::path::Path) -> Result<()> {
+    use std::fs::DirBuilder;
+    use std::os::unix::fs::DirBuilderExt;
+    use std::os::unix::fs::PermissionsExt;
+
+    // DirBuilder with mode sets permissions atomically at creation
+    let mut builder = DirBuilder::new();
+    builder.recursive(true).mode(0o700);
+
+    // create() is idempotent - succeeds if dir exists with any permissions
+    builder.create(dir).with_context(|| {
+        format!("Unable to create directory: {}", dir.display())
+    })?;
+
+    // Always verify/fix permissions (handles pre-existing directories)
+    let perms = fs::Permissions::from_mode(0o700);
+    fs::set_permissions(dir, perms).with_context(|| {
+        format!("Unable to set permissions on directory: {}", dir.display())
+    })?;
+
+    Ok(())
+}
+
+/// Creates a directory (non-Unix version without special permissions).
+///
+/// Parameters:
+///   - `dir`: Path to the directory to create
+///
+/// Returns: `Ok(())` on success, Err on I/O failure
+#[cfg(not(unix))]
+pub(crate) fn create_secure_directory(dir: &std::path::Path) -> Result<()> {
+    fs::create_dir_all(dir)
+        .with_context(|| format!("Unable to create directory: {}", dir.display()))?;
+    Ok(())
 }
 
 /// Internal function to clean .log files from a directory.

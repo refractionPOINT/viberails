@@ -264,42 +264,52 @@ fn test_get_debug_log_path_creates_directory() {
     );
 }
 
+// Tests for create_secure_directory (isolated with temp directories)
+
 #[cfg(unix)]
 #[test]
-fn test_get_debug_log_path_secure_permissions() {
+fn test_create_secure_directory_sets_permissions() {
     use std::os::unix::fs::PermissionsExt;
 
-    use super::loader::get_debug_log_path;
+    use super::loader::create_secure_directory;
 
-    let debug_dir = get_debug_log_path().unwrap();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let test_dir = temp_dir.path().join("secure_test");
 
-    let perms = std::fs::metadata(&debug_dir).unwrap().permissions();
+    // Create directory with secure permissions
+    create_secure_directory(&test_dir).unwrap();
+
+    let perms = std::fs::metadata(&test_dir).unwrap().permissions();
     let mode = perms.mode() & 0o777;
 
-    // Should be owner-only (0o700)
     assert_eq!(
         mode, 0o700,
-        "Debug directory should have 0o700 permissions, got: {:o}",
+        "Directory should have 0o700 permissions, got: {:o}",
         mode
     );
 }
 
 #[cfg(unix)]
 #[test]
-fn test_get_debug_log_path_fixes_insecure_permissions() {
+fn test_create_secure_directory_fixes_insecure_permissions() {
     use std::os::unix::fs::PermissionsExt;
 
-    use super::loader::get_debug_log_path;
+    use super::loader::create_secure_directory;
 
-    // Ensure directory exists first
-    let debug_dir = get_debug_log_path().unwrap();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let test_dir = temp_dir.path().join("insecure_test");
 
-    // Set insecure permissions (world-readable)
-    std::fs::set_permissions(&debug_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // Create directory with insecure permissions first
+    std::fs::create_dir_all(&test_dir).unwrap();
+    std::fs::set_permissions(&test_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-    // Verify permissions changed - some CI environments (macOS sandbox) may prevent
+// Verify permissions changed - some CI environments (macOS sandbox) may prevent
     // setting more permissive modes, so skip the rest of the test if we can't
-    let mode_before = std::fs::metadata(&debug_dir).unwrap().permissions().mode() & 0o777;
+    let mode_before = std::fs::metadata(&test_dir)
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
 
     if mode_before != 0o755 {
         // Platform restrictions prevent setting insecure permissions (e.g., macOS sandbox)
@@ -311,16 +321,34 @@ fn test_get_debug_log_path_fixes_insecure_permissions() {
         return;
     }
 
-    // Call get_debug_log_path again - should fix permissions
-    let _ = get_debug_log_path().unwrap();
+    // Call create_secure_directory - should fix permissions
+    create_secure_directory(&test_dir).unwrap();
 
     // Verify permissions are now secure
-    let mode_after = std::fs::metadata(&debug_dir).unwrap().permissions().mode() & 0o777;
+    let mode_after = std::fs::metadata(&test_dir)
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
     assert_eq!(
         mode_after, 0o700,
-        "Debug directory permissions should be fixed to 0o700, got: {:o}",
+        "Directory permissions should be fixed to 0o700, got: {:o}",
         mode_after
     );
+}
+
+#[test]
+fn test_create_secure_directory_creates_nested_directories() {
+    use super::loader::create_secure_directory;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let nested_dir = temp_dir.path().join("a").join("b").join("c");
+
+    // Create nested directory structure
+    create_secure_directory(&nested_dir).unwrap();
+
+    assert!(nested_dir.exists(), "Nested directory should be created");
+    assert!(nested_dir.is_dir(), "Path should be a directory");
 }
 
 // Tests for clean_logs_in_dir (uses temp directories for isolation)

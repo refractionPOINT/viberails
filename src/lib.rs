@@ -18,7 +18,7 @@ pub use hooks::{codex_hook, hook, install, list, uninstall, uninstall_hooks};
 pub use logging::Logging;
 pub use oauth::{LoginArgs, is_browser_available, login::login, open_browser};
 pub use providers::Providers;
-pub use upgrade::{poll_upgrade, upgrade};
+pub use upgrade::{UpgradeResult, poll_upgrade, upgrade};
 
 /// Menu option for the interactive menu
 pub struct MenuOption {

@@ -8,7 +8,7 @@ use colored::Colorize;
 use log::{error, info, warn};
 
 use crate::{
-    common::{EXECUTABLE_NAME, display_authorize_help, print_header, project_config_dir},
+    common::{EXECUTABLE_NAME, display_authorize_help, print_header, project_config_dir, validated_binary_dir},
     config::Config,
     providers::{ProviderRegistry, select_providers, select_providers_for_uninstall},
     tui::{MessageStyle, message_prompt},
@@ -157,19 +157,16 @@ fn uninstall_config() -> Result<()> {
 // PUBLIC
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Returns the installation path for the binary.
+///
+/// Uses ~/.local/bin/ on Unix-like systems. Validates the home directory
+/// to prevent HOME environment injection attacks.
+///
+/// Parameters: None
+///
+/// Returns: Path to the binary installation location
 pub fn binary_location() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| {
-        anyhow!("Unable to determine home directory. Ensure HOME environment variable is set")
-    })?;
-
-    let local_bin = home.join(".local").join("bin");
-
-    if !local_bin.exists() {
-        fs::create_dir_all(&local_bin)
-            .with_context(|| format!("Unable to create {}", local_bin.display()))?;
-    }
-
-    Ok(local_bin.join(EXECUTABLE_NAME))
+    Ok(validated_binary_dir()?.join(EXECUTABLE_NAME))
 }
 
 pub fn install_binary(dst: &Path) -> Result<()> {
