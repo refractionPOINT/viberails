@@ -444,6 +444,100 @@ fn test_clean_logs_in_dir_reports_correct_bytes() {
     assert_eq!(bytes, 200, "Should report correct total bytes");
 }
 
+// Tests for auto_upgrade field
+
+#[test]
+fn test_auto_upgrade_defaults_to_true() {
+    let config = UserConfig::default();
+    assert!(config.auto_upgrade, "auto_upgrade must be true by default");
+}
+
+#[test]
+fn test_auto_upgrade_backwards_compatible() {
+    // Old config without auto_upgrade should default to true
+    let json = r#"{
+        "user": {
+            "fail_open": true,
+            "audit_tool_use": true,
+            "audit_prompts": true,
+            "debug": false
+        },
+        "install_id": "test-id",
+        "org": {
+            "oid": "",
+            "name": "",
+            "url": ""
+        }
+    }"#;
+
+    let mut temp_file = NamedTempFile::new().unwrap();
+    temp_file.write_all(json.as_bytes()).unwrap();
+
+    let config = Config::load_existing(temp_file.path()).unwrap();
+
+    // auto_upgrade should default to true when not present in old configs
+    assert!(config.user.auto_upgrade);
+}
+
+#[test]
+fn test_auto_upgrade_can_be_disabled() {
+    let json = r#"{
+        "user": {
+            "fail_open": true,
+            "audit_tool_use": true,
+            "audit_prompts": true,
+            "debug": false,
+            "auto_upgrade": false
+        },
+        "install_id": "test-id",
+        "org": {
+            "oid": "",
+            "name": "",
+            "url": ""
+        }
+    }"#;
+
+    let mut temp_file = NamedTempFile::new().unwrap();
+    temp_file.write_all(json.as_bytes()).unwrap();
+
+    let config = Config::load_existing(temp_file.path()).unwrap();
+    assert!(!config.user.auto_upgrade);
+}
+
+#[test]
+fn test_very_old_config_backwards_compatible() {
+    // Very old config format without debug or auto_upgrade fields
+    // Both should use their defaults (debug=false, auto_upgrade=true)
+    let json = r#"{
+        "user": {
+            "fail_open": true
+        },
+        "install_id": "legacy-install-id",
+        "org": {
+            "oid": "test-oid",
+            "name": "Test Org",
+            "url": "https://test.hook.limacharlie.io/oid/adapter/secret"
+        }
+    }"#;
+
+    let mut temp_file = NamedTempFile::new().unwrap();
+    temp_file.write_all(json.as_bytes()).unwrap();
+
+    let config = Config::load_existing(temp_file.path()).unwrap();
+
+    // Verify defaults applied correctly
+    assert!(config.user.fail_open);
+    assert!(config.user.audit_tool_use, "audit_tool_use should default to true");
+    assert!(config.user.audit_prompts, "audit_prompts should default to true");
+    assert!(!config.user.debug, "debug should default to false");
+    assert!(config.user.auto_upgrade, "auto_upgrade should default to true");
+
+    // Verify other fields loaded correctly
+    assert_eq!(config.install_id, "legacy-install-id");
+    assert_eq!(config.org.oid, "test-oid");
+    assert_eq!(config.org.name, "Test Org");
+}
+
 // Tests for parse_team_url
 
 #[test]

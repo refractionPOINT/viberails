@@ -5,6 +5,17 @@ by directly invoking the CLI and testing various scenarios.
 
 ## What These Tests Cover
 
+### Show Config Tests (`show_config.bats`)
+
+Tests for the `show-config` command:
+- **Basic functionality**: Help output, configuration display
+- **Other Settings section**: Verifies Debug Mode and Auto Upgrade are shown in separate section
+- **Auto Upgrade config**: Setting display, enabling/disabling, persistence
+- **Backwards compatibility**: Old config formats without `debug` or `auto_upgrade` fields work correctly
+- **Debug mode display**: Shows enabled/disabled status correctly
+
+All tests use mock config data written to isolated temp directories.
+
 ### Upgrade Command Tests (`upgrade.bats`)
 
 Tests for the auto-upgrade functionality:
@@ -109,6 +120,7 @@ This ensures tests don't interfere with your actual configuration.
 | File | Purpose |
 |------|---------|
 | `test_helpers.bash` | Common setup, teardown, and assertion functions |
+| `show_config.bats` | Show-config command and backwards compatibility tests |
 | `upgrade.bats` | Upgrade command behavior tests |
 | `run_tests.sh` | Test runner with prerequisites check |
 | `README.md` | This documentation |
