@@ -126,8 +126,32 @@ This displays your current configuration including:
 - **Audit Tool Use** - Send tool calls to cloud for authorization (default: true)
 - **Audit Prompts** - Send prompts/chat to cloud for audit logging (default: true)
 - **Organization** - Your team name and webhook URL
+- **Debug Mode** - Enable verbose logging for troubleshooting (default: disabled)
+- **Auto Upgrade** - Automatic background updates (default: enabled)
 
 Configuration can be modified by editing `~/.config/viberails/config.json`.
+
+### Disabling Auto-Upgrade
+
+Viberails automatically checks for and installs updates in the background. To disable this:
+
+```bash
+# Edit your config file
+# On Linux/macOS: ~/.config/viberails/config.json
+# On Windows: %APPDATA%\viberails\config.json
+```
+
+Set `auto_upgrade` to `false` in the `user` section:
+
+```json
+{
+    "user": {
+        "auto_upgrade": false
+    }
+}
+```
+
+When disabled, you can still manually upgrade with `viberails upgrade`.
 
 ## Commands Reference
 

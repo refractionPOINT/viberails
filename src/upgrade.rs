@@ -1207,4 +1207,19 @@ mod tests {
         let result = move_file_replace_windows(&src, &dst);
         assert!(result.is_err(), "Move should fail with nonexistent source");
     }
+
+    #[test]
+    fn test_get_arch_returns_valid_arch() {
+        let arch = get_arch();
+
+        // Should return a non-empty string
+        assert!(!arch.is_empty(), "Architecture should not be empty");
+
+        // On known platforms, should return normalized names
+        match std::env::consts::ARCH {
+            "x86_64" => assert_eq!(arch, "x64"),
+            "aarch64" => assert_eq!(arch, "arm64"),
+            other => assert_eq!(arch, other),
+        }
+    }
 }

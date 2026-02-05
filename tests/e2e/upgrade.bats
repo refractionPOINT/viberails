@@ -196,3 +196,49 @@ teardown() {
     assert_not_contains "$output" "Latest version:"
 }
 
+# -----------------------------------------------------------------------------
+# Auto upgrade config tests
+# -----------------------------------------------------------------------------
+
+@test "auto_upgrade disabled prevents upgrade checks" {
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+
+    # Create config with auto_upgrade disabled
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": {
+        "fail_open": true,
+        "audit_tool_use": true,
+        "audit_prompts": true,
+        "debug": false,
+        "auto_upgrade": false
+    },
+    "install_id": "test-install-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    # Run version command - should complete without any upgrade activity
+    run "$VIBERAILS_BIN" --version
+    assert_exit_code 0 "$status"
+
+    # Should show version info
+    assert_contains "$output" "viberails"
+
+    # Should NOT show any upgrade-related messages
+    assert_not_contains "$output" "Checking for updates"
+    assert_not_contains "$output" "Downloading"
+    assert_not_contains "$output" "Upgrading"
+    assert_not_contains "$output" "upgrade"
+}
+
+@test "auto_upgrade enabled is the default behavior" {
+    # With no config file, auto_upgrade should be enabled by default
+    # This test verifies the binary starts without errors when auto_upgrade is implicit
+
+    run "$VIBERAILS_BIN" --version
+    assert_exit_code 0 "$status"
+    assert_contains "$output" "viberails"
+}
+
