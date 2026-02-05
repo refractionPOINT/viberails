@@ -74,7 +74,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                os: [ubuntu-latest, macos-latest]
+                os: [ubuntu-latest, macos-latest, windows-latest]
 
         runs-on: ${{ matrix.os }}
 
@@ -103,28 +103,12 @@ jobs:
             - name: Build binary for e2e tests
               run: cargo build
 
-            - name: Install bats (Ubuntu)
-              if: runner.os == 'Linux'
-              run: |
-                  # Install bats-core from official apt repository
-                  # Version is managed by Ubuntu package maintainers
-                  sudo apt-get update
-                  sudo apt-get install -y bats
-
-            - name: Install bats (macOS)
-              if: runner.os == 'macOS'
-              run: |
-                  # Install bats-core via Homebrew
-                  # Homebrew verifies package integrity via SHA256
-                  brew install bats-core
-
-            - name: Verify bats installation
-              run: |
-                  bats --version
-                  which bats
+            - name: Setup bats
+              uses: bats-core/bats-action@e412797c46257a2dbf3775f6f6010b33ee6cb99f # v3.0.1
 
             - name: Run e2e tests
               timeout-minutes: 5
+              shell: bash
               run: |
                   chmod +x tests/e2e/*.bats tests/e2e/*.sh tests/e2e/*.bash 2>/dev/null || true
                   bats --timing tests/e2e/*.bats

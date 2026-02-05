@@ -49,14 +49,14 @@ teardown() {
 # -----------------------------------------------------------------------------
 
 @test "upgrade --force flag is accepted" {
-    run timeout 2 "$VIBERAILS_BIN" upgrade --force 2>&1 || true
+    run run_with_timeout 2 "$VIBERAILS_BIN" upgrade --force 2>&1 || true
     # Should not fail due to unknown flag
     assert_not_contains "$output" "unexpected argument"
     assert_not_contains "$output" "unknown option"
 }
 
 @test "upgrade -f short flag is accepted" {
-    run timeout 2 "$VIBERAILS_BIN" upgrade -f 2>&1 || true
+    run run_with_timeout 2 "$VIBERAILS_BIN" upgrade -f 2>&1 || true
     # Should not fail due to unknown flag
     assert_not_contains "$output" "unexpected argument"
     assert_not_contains "$output" "unknown option"
@@ -67,21 +67,21 @@ teardown() {
 # -----------------------------------------------------------------------------
 
 @test "upgrade detects another upgrade in progress" {
-    # Skip if flock not available
+    # Skip if flock not available (not available on Windows)
     command -v flock >/dev/null || skip "flock not available"
 
     # Create binary directory and install a copy
     local bin_dir="${HOME}/.local/bin"
     mkdir -p "$bin_dir"
-    cp "$VIBERAILS_BIN" "${bin_dir}/viberails"
-    chmod +x "${bin_dir}/viberails"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+    chmod +x "${bin_dir}/${VIBERAILS_EXE_NAME}" 2>/dev/null || true
 
     # Create and hold the upgrade lock
     local lock_file
     lock_file=$(create_upgrade_lock)
 
     # Try to upgrade - should detect lock and fail fast or timeout
-    run timeout 2 "${bin_dir}/viberails" upgrade 2>&1 || true
+    run run_with_timeout 2 "${bin_dir}/${VIBERAILS_EXE_NAME}" upgrade 2>&1 || true
 
     # Should indicate another upgrade is in progress or timeout
     [[ "$status" -eq 0 ]] || [[ -n "$output" ]]
@@ -123,11 +123,13 @@ teardown() {
 
 @test "upgrade handles missing network gracefully" {
     # The upgrade should fail gracefully, not crash
-    run timeout 3 "$VIBERAILS_BIN" upgrade 2>&1 || true
+    run run_with_timeout 3 "$VIBERAILS_BIN" upgrade 2>&1 || true
 
-    # Should not panic or segfault
-    [[ "$status" -ne 139 ]]  # Not SIGSEGV
-    [[ "$status" -ne 134 ]]  # Not SIGABRT
+    # Should not panic or segfault (Unix signals, not applicable on Windows)
+    if ! is_windows; then
+        [[ "$status" -ne 139 ]]  # Not SIGSEGV
+        [[ "$status" -ne 134 ]]  # Not SIGABRT
+    fi
 }
 
 # -----------------------------------------------------------------------------
@@ -135,16 +137,19 @@ teardown() {
 # -----------------------------------------------------------------------------
 
 @test "upgrade cleans up old upgrade binaries on startup" {
+    # Skip on Windows - file locking and cleanup behavior differs
+    is_windows && skip "file locking behavior differs on Windows"
+
     local bin_dir="${HOME}/.local/bin"
     mkdir -p "$bin_dir"
-    cp "$VIBERAILS_BIN" "${bin_dir}/viberails"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Create fake old upgrade binaries
     touch "${bin_dir}/viberails_upgrade_12345678"
     touch "${bin_dir}/viberails_upgrade_abcdef01"
 
     # Run upgrade (will fail but should clean up)
-    run timeout 2 "${bin_dir}/viberails" upgrade 2>&1 || true
+    run run_with_timeout 2 "${bin_dir}/${VIBERAILS_EXE_NAME}" upgrade 2>&1 || true
 
     # Old upgrade binaries should be removed
     # Note: cleanup happens at start of upgrade process
@@ -154,12 +159,15 @@ teardown() {
 }
 
 @test "upgrade does not leave temp files on failure" {
+    # Skip on Windows - file locking and cleanup behavior differs
+    is_windows && skip "file locking behavior differs on Windows"
+
     local bin_dir="${HOME}/.local/bin"
     mkdir -p "$bin_dir"
-    cp "$VIBERAILS_BIN" "${bin_dir}/viberails"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run upgrade (will fail)
-    run timeout 2 "${bin_dir}/viberails" upgrade 2>&1 || true
+    run run_with_timeout 2 "${bin_dir}/${VIBERAILS_EXE_NAME}" upgrade 2>&1 || true
 
     # Count temp files (should be none)
     local temp_count

@@ -16,6 +16,40 @@ TEST_TMPDIR=""
 # Path to the viberails binary under test
 VIBERAILS_BIN=""
 
+# Binary name with platform-appropriate extension
+VIBERAILS_EXE_NAME=""
+
+# Check if running on Windows (Git Bash/MSYS)
+is_windows() {
+    [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]
+}
+
+# Get the binary name with correct extension for current platform
+get_exe_name() {
+    if is_windows; then
+        echo "viberails.exe"
+    else
+        echo "viberails"
+    fi
+}
+
+# Check if timeout command is available
+has_timeout() {
+    command -v timeout >/dev/null 2>&1
+}
+
+# Run command with timeout if available, otherwise run directly
+# Usage: run_with_timeout <seconds> <command> [args...]
+run_with_timeout() {
+    local seconds="$1"
+    shift
+    if has_timeout; then
+        timeout "$seconds" "$@"
+    else
+        "$@"
+    fi
+}
+
 # Setup function to be called at the start of each test
 setup_test() {
     # Create isolated temp directory for this test
@@ -25,11 +59,12 @@ setup_test() {
     export XDG_DATA_HOME="${TEST_TMPDIR}/data"
     mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
 
-    # Set path to binary
-    VIBERAILS_BIN="${BUILD_DIR}/viberails"
+    # Set binary name and path (handle Windows .exe extension)
+    VIBERAILS_EXE_NAME="$(get_exe_name)"
+    VIBERAILS_BIN="${BUILD_DIR}/${VIBERAILS_EXE_NAME}"
 
     # Ensure binary exists
-    if [[ ! -x "$VIBERAILS_BIN" ]]; then
+    if [[ ! -f "$VIBERAILS_BIN" ]]; then
         echo "Binary not found at $VIBERAILS_BIN - run 'cargo build' first" >&2
         return 1
     fi
