@@ -153,8 +153,8 @@ release_upgrade_lock            # Release the lock
 2. Use `skip "reason"` for tests that can't run in all environments:
 
 ```bash
-@test "requires python3" {
-    command -v python3 >/dev/null || skip "python3 not available"
+@test "requires flock" {
+    command -v flock >/dev/null || skip "flock not available"
     # ... rest of test
 }
 ```
