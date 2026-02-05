@@ -11,7 +11,8 @@ use log::warn;
 use viberails::{
     JoinTeamArgs, Logging, LoginArgs, MenuAction, PROJECT_NAME, PROJECT_VERSION, Providers,
     clean_debug_logs, codex_hook, get_debug_log_path, get_menu_options, hook, install,
-    is_authorized, join_team, list, login, poll_upgrade, set_debug_mode, show_configuration,
+    is_authorized, is_browser_available, join_team, list, login, open_browser, poll_upgrade,
+    set_debug_mode, show_configuration,
     tui::{MessageStyle, message_prompt, select_prompt_with_shortcuts, text_prompt},
     uninstall, uninstall_hooks, upgrade,
 };
@@ -128,6 +129,21 @@ fn wait_for_keypress() {
     println!();
 }
 
+/// Open the team dashboard in the default browser after team setup.
+/// Best-effort: silently continues if the browser can't be opened.
+fn open_team_dashboard() {
+    if let Ok(config) = viberails::config::Config::load()
+        && !config.org.oid.is_empty()
+        && is_browser_available()
+    {
+        let team_url = format!(
+            "https://app.viberails.io/viberails/teams/{}",
+            config.org.oid
+        );
+        let _ = open_browser(&team_url);
+    }
+}
+
 /// Initialize logging for callback commands with debug mode support.
 /// Checks config for debug flag and enables verbose logging if set.
 ///
@@ -184,6 +200,7 @@ fn show_menu() -> Result<()> {
                     continue;
                 }
                 install()?;
+                open_team_dashboard();
                 return Ok(()); // Exit after successful installation
             }
             Some(MenuAction::JoinTeam) => {
@@ -205,6 +222,7 @@ fn show_menu() -> Result<()> {
                     continue;
                 }
                 install()?;
+                open_team_dashboard();
                 return Ok(()); // Exit after successful installation
             }
             Some(MenuAction::InstallHooks) => {

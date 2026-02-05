@@ -307,7 +307,8 @@ pub fn authorize(provider: OAuthProvider, args: &LoginArgs) -> Result<OAuthToken
 /// Check if a browser is likely available on this system.
 ///
 /// Returns false for headless systems (no DISPLAY on Linux, SSH sessions, etc.)
-fn is_browser_available() -> bool {
+#[must_use]
+pub fn is_browser_available() -> bool {
     #[cfg(target_os = "linux")]
     {
         // Check for DISPLAY environment variable (X11)
@@ -1212,7 +1213,7 @@ fn finalize_mfa(
 }
 
 /// Open URL in the default browser
-fn open_browser(url: &str) -> Result<()> {
+pub fn open_browser(url: &str) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")

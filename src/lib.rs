@@ -16,7 +16,7 @@ pub use config::{
 };
 pub use hooks::{codex_hook, hook, install, list, uninstall, uninstall_hooks};
 pub use logging::Logging;
-pub use oauth::{LoginArgs, login::login};
+pub use oauth::{LoginArgs, is_browser_available, login::login, open_browser};
 pub use providers::Providers;
 pub use upgrade::{poll_upgrade, upgrade};
 
