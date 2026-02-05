@@ -340,13 +340,20 @@ pub fn show_configuration() -> Result<()> {
         ConfigEntry::bool("Fail Open", config.user.fail_open),
         ConfigEntry::bool("Audit Tool Use", config.user.audit_tool_use),
         ConfigEntry::bool("Audit Prompts", config.user.audit_prompts),
-        ConfigEntry::bool("Auto Upgrade", config.user.auto_upgrade),
         ConfigEntry::new("Install ID", &config.install_id),
         ConfigEntry::new("Organization", &config.org.name),
         ConfigEntry::new("Organization URL", &config.org.url),
     ];
 
     ConfigView::new(&title, entries).print();
+
+    // Print "Other Settings" section with separator
+    let other_settings = vec![
+        ConfigEntry::bool("Debug Mode", config.user.debug),
+        ConfigEntry::bool("Auto Upgrade", config.user.auto_upgrade),
+    ];
+
+    ConfigView::new("---- Other Settings", other_settings).print();
 
     Ok(())
 }
