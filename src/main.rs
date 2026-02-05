@@ -343,9 +343,13 @@ fn main() -> Result<()> {
     };
 
     //
-    // This'll try to upgrade every x hours on exit
+    // This'll try to upgrade every x hours on exit.
+    // Skip for hook callbacks - they must exit quickly to avoid blocking
+    // the AI tool (e.g., Claude Code waits for the hook process to exit).
     //
-    if let Err(e) = poll_upgrade() {
+    if !is_callback
+        && let Err(e) = poll_upgrade()
+    {
         warn!("upgrade failure: {e}");
     }
 

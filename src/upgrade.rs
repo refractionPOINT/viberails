@@ -3,7 +3,7 @@ use std::{
     env, fs,
     io::{Read, Write},
     path::Path,
-    process::Command,
+    process::{Command, Stdio},
     thread::sleep,
     time::{Duration, SystemTime},
 };
@@ -30,6 +30,7 @@ use crate::{
 const DEF_COPY_ATTEMPTS: usize = 4;
 const DEF_UPGRADE_CHECK: Duration = Duration::from_mins(15);
 const LOCK_FILE_NAME: &str = ".viberails.upgrade.lock";
+const DOWNLOAD_TIMEOUT_SECS: u64 = 30;
 
 fn get_arch() -> &'static str {
     match std::env::consts::ARCH {
@@ -62,6 +63,7 @@ fn download_file(url: &str, dst: &Path) -> Result<()> {
 
     let res = minreq::get(url)
         .with_header("User-Agent", user_agent())
+        .with_timeout(DOWNLOAD_TIMEOUT_SECS)
         .send()
         .with_context(|| format!("{url} failed"))?;
 
@@ -278,6 +280,9 @@ fn spawn_detached(path: &Path, args: &[&str]) -> Result<()> {
     unsafe {
         Command::new(path)
             .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .pre_exec(|| {
                 libc::setsid();
                 Ok(())
@@ -294,6 +299,9 @@ fn spawn_detached(path: &Path, args: &[&str]) -> Result<()> {
 
     Command::new(path)
         .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .creation_flags(DETACHED_PROCESS)
         .spawn()?;
     Ok(())
