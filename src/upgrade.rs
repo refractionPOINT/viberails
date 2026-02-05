@@ -597,18 +597,15 @@ fn self_upgrade_with_force(force: bool, verbose: bool) -> Result<UpgradeResult> 
     }
 }
 
-/// Checks if the current binary is older than the specified duration.
+/// Checks if a file is older than the specified duration.
 ///
 /// Parameters:
-///   - `max_age`: Maximum age before binary is considered old
+///   - `path`: Path to the file to check
+///   - `max_age`: Maximum age before file is considered old
 ///
-/// Returns: true if binary is older than `max_age`, false otherwise
-fn is_binary_older(max_age: &Duration) -> bool {
-    let Ok(exe_path) = std::env::current_exe() else {
-        return false;
-    };
-
-    let Ok(metadata) = fs::metadata(&exe_path) else {
+/// Returns: true if file is older than `max_age`, false if newer or on error
+fn is_file_older_than(path: &Path, max_age: &Duration) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
         return false;
     };
 
@@ -624,6 +621,20 @@ fn is_binary_older(max_age: &Duration) -> bool {
     };
 
     &elapsed > max_age
+}
+
+/// Checks if the current binary is older than the specified duration.
+///
+/// Parameters:
+///   - `max_age`: Maximum age before binary is considered old
+///
+/// Returns: true if binary is older than `max_age`, false otherwise
+fn is_binary_older(max_age: &Duration) -> bool {
+    let Ok(exe_path) = std::env::current_exe() else {
+        return false;
+    };
+
+    is_file_older_than(&exe_path, max_age)
 }
 
 /// Spawns a detached process on Unix systems.
@@ -944,26 +955,6 @@ mod tests {
             name2.contains("_upgrade_"),
             "Path should contain upgrade prefix"
         );
-    }
-
-    /// Helper to check if a file is older than a duration.
-    /// Extracted for testability with controlled file times.
-    fn is_file_older_than(path: &Path, max_age: &Duration) -> bool {
-        let Ok(metadata) = fs::metadata(path) else {
-            return false;
-        };
-
-        let file_time = metadata.created().or_else(|_| metadata.modified());
-
-        let Ok(file_time) = file_time else {
-            return false;
-        };
-
-        let Ok(elapsed) = SystemTime::now().duration_since(file_time) else {
-            return false;
-        };
-
-        &elapsed > max_age
     }
 
     #[test]

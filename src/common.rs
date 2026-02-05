@@ -1,6 +1,7 @@
 use std::{env, fs, path::PathBuf, sync::OnceLock};
 
 use anyhow::{Context, Result, anyhow, bail};
+use log::info;
 #[cfg(unix)]
 use log::{debug, warn};
 
@@ -382,15 +383,62 @@ pub fn get_validated_home() -> Result<PathBuf> {
     Ok(home)
 }
 
+/// Environment variable to override the binary installation directory.
+///
+/// This is an opt-in escape hatch for testing, CI, and environments that need
+/// to control where binaries are installed. In production, leave this unset
+/// to use the secure default (~/.local/bin with HOME validation).
+///
+/// Example usage in tests:
+///   export VIBERAILS_BIN_DIR="/tmp/test-home/.local/bin"
+const ENV_BIN_DIR_OVERRIDE: &str = "VIBERAILS_BIN_DIR";
+
 /// Returns the validated binary installation directory.
 ///
 /// Uses ~/.local/bin/ on Unix-like systems. Validates the home directory
 /// to prevent HOME environment injection attacks.
 ///
+/// If `VIBERAILS_BIN_DIR` environment variable is set, uses that path instead.
+/// This is an opt-in override for testing and CI environments that need to
+/// control the binary directory without modifying the system home.
+///
 /// Parameters: None
 ///
 /// Returns: Path to the binary installation directory
 pub fn validated_binary_dir() -> Result<PathBuf> {
+    // Check for explicit override (for testing/CI)
+    if let Ok(override_dir) = std::env::var(ENV_BIN_DIR_OVERRIDE) {
+        let bin_dir = PathBuf::from(&override_dir);
+
+        // Still validate the override path for safety
+        if !bin_dir.is_absolute() {
+            bail!(
+                "{ENV_BIN_DIR_OVERRIDE} must be an absolute path: {override_dir}"
+            );
+        }
+
+        // Check for path traversal attempts
+        for component in bin_dir.components() {
+            if let std::path::Component::ParentDir = component {
+                bail!(
+                    "{ENV_BIN_DIR_OVERRIDE} contains parent directory references: {override_dir}"
+                );
+            }
+        }
+
+        if !bin_dir.exists() {
+            fs::create_dir_all(&bin_dir)
+                .with_context(|| format!("Unable to create {}", bin_dir.display()))?;
+        }
+
+        info!(
+            "Using binary directory override from {ENV_BIN_DIR_OVERRIDE}: {}",
+            bin_dir.display()
+        );
+        return Ok(bin_dir);
+    }
+
+    // Default: use validated home directory
     let home = get_validated_home()?;
 
     // Ensure home path is absolute (defense in depth)

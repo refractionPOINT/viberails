@@ -57,7 +57,12 @@ setup_test() {
     export HOME="${TEST_TMPDIR}/home"
     export XDG_CONFIG_HOME="${TEST_TMPDIR}/config"
     export XDG_DATA_HOME="${TEST_TMPDIR}/data"
-    mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
+
+    # Override binary installation directory for test isolation
+    # This ensures upgrade/install operations don't touch the real ~/.local/bin
+    export VIBERAILS_BIN_DIR="${HOME}/.local/bin"
+
+    mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$VIBERAILS_BIN_DIR"
 
     # Set binary name and path (handle Windows .exe extension)
     VIBERAILS_EXE_NAME="$(get_exe_name)"
