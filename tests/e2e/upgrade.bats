@@ -113,8 +113,8 @@ teardown() {
 
     # Should contain 'viberails' and a version number
     assert_contains "$output" "viberails"
-    # Version should match semver-like pattern or git hash
-    [[ "$output" =~ [0-9]+\.[0-9]+ ]] || [[ "$output" =~ [a-f0-9]{7} ]]
+    # Version should match semver-like pattern, git hash, or "unknown" (dev builds without tags)
+    [[ "$output" =~ [0-9]+\.[0-9]+ ]] || [[ "$output" =~ [a-f0-9]{7} ]] || [[ "$output" =~ unknown ]]
 }
 
 # -----------------------------------------------------------------------------
