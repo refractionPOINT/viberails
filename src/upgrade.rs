@@ -23,15 +23,14 @@ struct ReleaseInfo {
 
 use crate::{
     common::{EXECUTABLE_EXT, EXECUTABLE_NAME, PROJECT_NAME, PROJECT_VERSION, user_agent},
+    config::{is_upgrade_check_due, touch_last_upgrade_check},
     default::get_embedded_default,
     hooks::binary_location,
 };
 
 const DEF_COPY_ATTEMPTS: usize = 4;
-const DEF_UPGRADE_CHECK: Duration = Duration::from_mins(15);
 const LOCK_FILE_NAME: &str = ".viberails.upgrade.lock";
 const DOWNLOAD_TIMEOUT_SECS: u64 = 30;
-
 fn get_arch() -> &'static str {
     match std::env::consts::ARCH {
         "x86_64" => "x64",
@@ -250,29 +249,6 @@ fn self_upgrade() -> Result<Option<ReleaseInfo>> {
     Ok(Some(release))
 }
 
-fn is_binary_older(max_age: &Duration) -> bool {
-    let Ok(exe_path) = std::env::current_exe() else {
-        return false;
-    };
-
-    let Ok(metadata) = fs::metadata(&exe_path) else {
-        return false;
-    };
-
-    // Try created time first, fall back to modified time
-    let file_time = metadata.created().or_else(|_| metadata.modified());
-
-    let Ok(file_time) = file_time else {
-        return false;
-    };
-
-    let Ok(elapsed) = SystemTime::now().duration_since(file_time) else {
-        return false;
-    };
-
-    &elapsed > max_age
-}
-
 #[cfg(unix)]
 fn spawn_detached(path: &Path, args: &[&str]) -> Result<()> {
     use std::os::unix::process::CommandExt;
@@ -352,12 +328,13 @@ fn spawn_upgrade() -> Result<()> {
 pub fn poll_upgrade() -> Result<()> {
     let force_upgrade = env::var("VB_FORCE_UPGRADE").is_ok();
 
-    if is_binary_older(&DEF_UPGRADE_CHECK) || force_upgrade {
+    if is_upgrade_check_due() || force_upgrade {
         //
         // time to try to upgrade
         //
         info!("time to upgrade");
         upgrade()?;
+        touch_last_upgrade_check();
     } else {
         previous_upgrade_cleanup();
     }

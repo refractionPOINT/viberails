@@ -345,8 +345,8 @@ pub fn show_configuration() -> Result<()> {
 /// explicitly provided (Some) will be updated.
 ///
 /// Parameters:
-///   - args: Configuration arguments containing optional values for fail_open,
-///           audit_tool_use, and audit_prompts
+///   - args: Configuration arguments containing optional values for `fail_open`,
+///     `audit_tool_use`, and `audit_prompts`
 ///
 /// Returns: Result indicating success or failure
 pub fn configure(args: &ConfigureArgs) -> Result<()> {
