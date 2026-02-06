@@ -5,8 +5,5 @@ pub use loader::{
     show_configuration,
 };
 
-mod upgrade_config;
-pub use upgrade_config::UpgradeConfig;
-
 #[cfg(test)]
 mod tests;

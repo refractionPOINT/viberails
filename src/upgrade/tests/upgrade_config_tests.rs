@@ -5,7 +5,7 @@ use std::{
 
 use tempfile::TempDir;
 
-use super::super::upgrade_config::UpgradeConfig;
+use super::super::UpgradeConfig;
 
 #[test]
 fn test_default_values() {
