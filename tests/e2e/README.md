@@ -38,6 +38,31 @@ Tests for Codex callback cloud metadata:
 
 These tests use a local mock HTTP server and isolated config data per test run.
 
+### Uninstall All Tests (`uninstall_all.bats`)
+
+Tests for the `uninstall-all` command (complete cleanup):
+- **Basic command tests**: Help output, command recognition
+- **No hooks scenario**: Graceful handling when no hooks are installed
+- **Config directory cleanup**: Removes `~/.config/viberails/` and handles missing directory
+- **Data directory cleanup**: Removes `~/.local/share/viberails/` including debug logs
+- **Binary removal**: Deletes the viberails binary from `~/.local/bin/`
+- **Temp file cleanup**: Removes upgrade lock files and temporary binaries (`viberails_upgrade_*`, `.viberails_new_*`)
+- **Comprehensive cleanup**: Verifies all artifacts are removed in one operation
+- **Permission handling**: Continues gracefully when some directories cannot be deleted
+- **Symlink safety**: Refuses to follow symlinks to prevent attacks (6 dedicated tests)
+- **Edge cases**: Empty directories, deeply nested files, unrelated files preserved
+- **Idempotency**: Running twice doesn't cause errors
+
+### Uninstall Hooks Tests (`uninstall_hooks.bats`)
+
+Tests for the `uninstall-hooks` command (hooks only removal):
+- **Basic command tests**: Help output, command recognition
+- **Backward compatibility**: `uninstall` alias works correctly
+- **Binary preservation**: Verifies binary is NOT deleted (unlike `uninstall-all`)
+- **Config preservation**: Verifies config directory is NOT deleted
+- **Data preservation**: Verifies data directory is NOT deleted
+- **Output messages**: Shows "Binary retained for future use" message
+
 ## Prerequisites
 
 ### Required
@@ -135,6 +160,8 @@ This ensures tests don't interfere with your actual configuration.
 | `show_config.bats` | Show-config command and backwards compatibility tests |
 | `codex_ppid.bats` | Codex callback cloud payload metadata checks (`meta_data.ppid`) |
 | `upgrade.bats` | Upgrade command behavior tests |
+| `uninstall_all.bats` | Complete cleanup command tests (hooks, binary, config, data) |
+| `uninstall_hooks.bats` | Hooks-only removal and backward compatibility tests |
 | `run_tests.sh` | Test runner with prerequisites check |
 | `README.md` | This documentation |
 
