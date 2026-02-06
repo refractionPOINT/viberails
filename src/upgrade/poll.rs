@@ -28,7 +28,7 @@ use crate::{
     hooks::binary_location,
 };
 
-pub(super) const DEF_UPGRADE_CHECK: Duration = Duration::from_mins(15);
+pub(super) const DEF_UPGRADE_CHECK: Duration = Duration::from_hours(1);
 
 const DEF_COPY_ATTEMPTS: usize = 4;
 const LOCK_FILE_NAME: &str = ".viberails.upgrade.lock";
