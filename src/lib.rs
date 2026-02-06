@@ -2,6 +2,7 @@ mod cloud;
 mod common;
 pub mod config;
 mod default;
+pub mod edr;
 mod hooks;
 mod logging;
 mod oauth;

@@ -220,12 +220,18 @@ fn show_menu() -> Result<()> {
                     no_browser: false,
                     existing_org: None,
                 };
-                if let Err(e) = login(&args) {
-                    eprintln!("Login failed: {e}");
-                    wait_for_keypress();
-                    continue;
-                }
+                let jwt = match login(&args) {
+                    Ok(jwt) => jwt,
+                    Err(e) => {
+                        eprintln!("Login failed: {e}");
+                        wait_for_keypress();
+                        continue;
+                    }
+                };
                 install()?;
+                if let Ok(config) = viberails::config::Config::load() {
+                    viberails::edr::offer_edr_deployment(&jwt, &config.org.oid);
+                }
                 open_team_dashboard();
                 return Ok(()); // Exit after successful installation
             }
@@ -324,7 +330,7 @@ fn main() -> Result<()> {
         }
         Some(Command::ShowConfiguration) => show_configuration(),
         Some(Command::Configure(args)) => configure(&args),
-        Some(Command::InitTeam(args)) => login(&args),
+        Some(Command::InitTeam(args)) => login(&args).map(|_| ()),
         Some(Command::JoinTeam(args)) => join_team(&args),
         Some(Command::Upgrade { force }) => {
             // CLI upgrade: verbose output to show user what's happening

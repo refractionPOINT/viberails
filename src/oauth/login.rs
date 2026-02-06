@@ -240,7 +240,7 @@ fn create_web_hook(oid: &str, jwt: &str, install_id: &str) -> Result<String> {
 // Public
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn login(args: &LoginArgs) -> Result<()> {
+pub fn login(args: &LoginArgs) -> Result<String> {
     // Ask user to select OAuth provider
     let Some(provider) = query_oauth_provider()? else {
         bail!("Invalid Oauth provider");
@@ -283,7 +283,7 @@ pub fn login(args: &LoginArgs) -> Result<()> {
         let team_choice = match get_user_orgs(&login.id_token) {
             Ok(orgs) if !orgs.is_empty() => {
                 let Some(choice) = query_team_choice(orgs)? else {
-                    return Ok(());
+                    bail!("Team selection cancelled");
                 };
                 choice
             }
@@ -309,7 +309,7 @@ pub fn login(args: &LoginArgs) -> Result<()> {
                 println!("{} Access token received", "✓".green());
 
                 let Some(org_name) = query_org_name(&jwt)? else {
-                    return Ok(());
+                    bail!("Organization name entry cancelled");
                 };
                 let location = ORG_DEFAULT_LOCATION;
 
@@ -363,7 +363,7 @@ pub fn login(args: &LoginArgs) -> Result<()> {
 
     print_success_message(&config.org.name, &config.org.oid, &config.org.url);
 
-    Ok(())
+    Ok(jwt)
 }
 
 /// Print the success message after team setup is complete
