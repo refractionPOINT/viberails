@@ -90,7 +90,7 @@ fn make_executable(file_path: &Path) -> Result<()> {
 ///
 /// Returns: `Ok(())` on success, Err on Windows API failure
 #[cfg(windows)]
-fn move_file_replace_windows(src: &Path, dst: &Path) -> Result<()> {
+pub(crate) fn move_file_replace_windows(src: &Path, dst: &Path) -> Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{
         MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
