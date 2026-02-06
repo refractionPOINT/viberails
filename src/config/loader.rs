@@ -339,6 +339,48 @@ pub fn show_configuration() -> Result<()> {
     Ok(())
 }
 
+/// Configure audit and behavior settings.
+///
+/// Updates the configuration with the provided values. Only fields that are
+/// explicitly provided (Some) will be updated.
+///
+/// Parameters:
+///   - args: Configuration arguments containing optional values for fail_open,
+///           audit_tool_use, and audit_prompts
+///
+/// Returns: Result indicating success or failure
+pub fn configure(args: &ConfigureArgs) -> Result<()> {
+    let mut config = Config::load()?;
+
+    // Update only the fields that were explicitly provided
+    if let Some(fail_open) = args.fail_open {
+        config.user.fail_open = fail_open;
+    }
+    if let Some(audit_tool_use) = args.audit_tool_use {
+        config.user.audit_tool_use = audit_tool_use;
+    }
+    if let Some(audit_prompts) = args.audit_prompts {
+        config.user.audit_prompts = audit_prompts;
+    }
+
+    config.save()?;
+
+    // Display updated configuration
+    let title = format!(" {} {} ", PROJECT_NAME, crate::common::PROJECT_VERSION);
+    let entries = vec![
+        ConfigEntry::bool("Fail Open", config.user.fail_open),
+        ConfigEntry::bool("Audit Tool Use", config.user.audit_tool_use),
+        ConfigEntry::bool("Audit Prompts", config.user.audit_prompts),
+        ConfigEntry::new("Install ID", &config.install_id),
+        ConfigEntry::new("Organization", &config.org.name),
+        ConfigEntry::new("Organization URL", &config.org.url),
+    ];
+
+    ConfigView::new(&title, entries).print();
+
+    Ok(())
+}
+
 /// Parses a team URL and extracts the organization ID.
 /// URL format: `https://{hooks_domain}/{oid}/{adapter_name}/{secret}`
 pub(crate) fn parse_team_url(url: &str) -> Result<String> {

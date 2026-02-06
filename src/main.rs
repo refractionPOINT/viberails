@@ -9,10 +9,10 @@ use crossterm::{
 use log::warn;
 
 use viberails::{
-    JoinTeamArgs, Logging, LoginArgs, MenuAction, PROJECT_NAME, PROJECT_VERSION, Providers,
-    clean_debug_logs, codex_hook, get_debug_log_path, get_menu_options, hook, install,
-    is_authorized, is_browser_available, join_team, list, login, open_browser, poll_upgrade,
-    set_debug_mode, show_configuration,
+    ConfigureArgs, JoinTeamArgs, Logging, LoginArgs, MenuAction, PROJECT_NAME, PROJECT_VERSION,
+    Providers, clean_debug_logs, codex_hook, configure, get_debug_log_path, get_menu_options, hook,
+    install, is_authorized, is_browser_available, join_team, list, login, open_browser,
+    poll_upgrade, set_debug_mode, show_configuration,
     tui::{MessageStyle, message_prompt, select_prompt_with_shortcuts, text_prompt},
     uninstall, uninstall_hooks, upgrade,
 };
@@ -37,6 +37,10 @@ enum Command {
     /// Join an existing team using a team URL
     #[command(visible_alias = "join")]
     JoinTeam(JoinTeamArgs),
+
+    /// Configure audit and behavior settings
+    #[command(visible_alias = "config")]
+    Configure(Box<ConfigureArgs>),
 
     /// Show Config
     #[command(visible_alias = "show-config")]
@@ -315,6 +319,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         Some(Command::ShowConfiguration) => show_configuration(),
+        Some(Command::Configure(args)) => configure(&args),
         Some(Command::InitTeam(args)) => login(&args),
         Some(Command::JoinTeam(args)) => join_team(&args),
         Some(Command::Upgrade) => upgrade(),
