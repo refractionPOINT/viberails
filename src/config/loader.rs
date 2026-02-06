@@ -364,8 +364,8 @@ pub fn show_configuration() -> Result<()> {
 /// explicitly provided (Some) will be updated.
 ///
 /// Parameters:
-///   - args: Configuration arguments containing optional values for fail_open,
-///           audit_tool_use, and audit_prompts
+///   - args: Configuration arguments containing optional values for `fail_open`,
+///     `audit_tool_use`, and `audit_prompts`
 ///
 /// Returns: Result indicating success or failure
 pub fn configure(args: &ConfigureArgs) -> Result<()> {
@@ -544,15 +544,14 @@ pub(crate) fn create_secure_directory(dir: &std::path::Path) -> Result<()> {
     builder.recursive(true).mode(0o700);
 
     // create() is idempotent - succeeds if dir exists with any permissions
-    builder.create(dir).with_context(|| {
-        format!("Unable to create directory: {}", dir.display())
-    })?;
+    builder
+        .create(dir)
+        .with_context(|| format!("Unable to create directory: {}", dir.display()))?;
 
     // Always verify/fix permissions (handles pre-existing directories)
     let perms = fs::Permissions::from_mode(0o700);
-    fs::set_permissions(dir, perms).with_context(|| {
-        format!("Unable to set permissions on directory: {}", dir.display())
-    })?;
+    fs::set_permissions(dir, perms)
+        .with_context(|| format!("Unable to set permissions on directory: {}", dir.display()))?;
 
     Ok(())
 }

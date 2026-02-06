@@ -5,7 +5,7 @@ use tempfile::NamedTempFile;
 use crate::common::PROJECT_NAME;
 use crate::config::loader::LcOrg;
 
-use super::loader::{Config, UserConfig, parse_team_url};
+use super::super::loader::{Config, UserConfig, parse_team_url};
 
 #[test]
 fn test_user_config_default() {
@@ -236,7 +236,7 @@ fn test_debug_serialization_roundtrip() {
 
 #[test]
 fn test_get_debug_log_path_returns_debug_directory() {
-    use super::loader::get_debug_log_path;
+    use super::super::loader::get_debug_log_path;
 
     let path = get_debug_log_path().unwrap();
 
@@ -250,7 +250,7 @@ fn test_get_debug_log_path_returns_debug_directory() {
 
 #[test]
 fn test_get_debug_log_path_creates_directory() {
-    use super::loader::get_debug_log_path;
+    use super::super::loader::get_debug_log_path;
 
     let path = get_debug_log_path().unwrap();
 
@@ -274,7 +274,7 @@ fn test_get_debug_log_path_creates_directory() {
 fn test_create_secure_directory_sets_permissions() {
     use std::os::unix::fs::PermissionsExt;
 
-    use super::loader::create_secure_directory;
+    use super::super::loader::create_secure_directory;
 
     let temp_dir = tempfile::tempdir().unwrap();
     let test_dir = temp_dir.path().join("secure_test");
@@ -297,7 +297,7 @@ fn test_create_secure_directory_sets_permissions() {
 fn test_create_secure_directory_fixes_insecure_permissions() {
     use std::os::unix::fs::PermissionsExt;
 
-    use super::loader::create_secure_directory;
+    use super::super::loader::create_secure_directory;
 
     let temp_dir = tempfile::tempdir().unwrap();
     let test_dir = temp_dir.path().join("insecure_test");
@@ -306,13 +306,9 @@ fn test_create_secure_directory_fixes_insecure_permissions() {
     std::fs::create_dir_all(&test_dir).unwrap();
     std::fs::set_permissions(&test_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-// Verify permissions changed - some CI environments (macOS sandbox) may prevent
+    // Verify permissions changed - some CI environments (macOS sandbox) may prevent
     // setting more permissive modes, so skip the rest of the test if we can't
-    let mode_before = std::fs::metadata(&test_dir)
-        .unwrap()
-        .permissions()
-        .mode()
-        & 0o777;
+    let mode_before = std::fs::metadata(&test_dir).unwrap().permissions().mode() & 0o777;
 
     if mode_before != 0o755 {
         // Platform restrictions prevent setting insecure permissions (e.g., macOS sandbox)
@@ -328,11 +324,7 @@ fn test_create_secure_directory_fixes_insecure_permissions() {
     create_secure_directory(&test_dir).unwrap();
 
     // Verify permissions are now secure
-    let mode_after = std::fs::metadata(&test_dir)
-        .unwrap()
-        .permissions()
-        .mode()
-        & 0o777;
+    let mode_after = std::fs::metadata(&test_dir).unwrap().permissions().mode() & 0o777;
     assert_eq!(
         mode_after, 0o700,
         "Directory permissions should be fixed to 0o700, got: {:o}",
@@ -342,7 +334,7 @@ fn test_create_secure_directory_fixes_insecure_permissions() {
 
 #[test]
 fn test_create_secure_directory_creates_nested_directories() {
-    use super::loader::create_secure_directory;
+    use super::super::loader::create_secure_directory;
 
     let temp_dir = tempfile::tempdir().unwrap();
     let nested_dir = temp_dir.path().join("a").join("b").join("c");
@@ -358,7 +350,7 @@ fn test_create_secure_directory_creates_nested_directories() {
 
 #[test]
 fn test_clean_logs_in_dir_removes_log_files() {
-    use super::loader::clean_logs_in_dir;
+    use super::super::loader::clean_logs_in_dir;
 
     // Use temp directory for test isolation
     let temp_dir = tempfile::tempdir().unwrap();
@@ -379,7 +371,7 @@ fn test_clean_logs_in_dir_removes_log_files() {
 
 #[test]
 fn test_clean_logs_in_dir_only_removes_log_extension() {
-    use super::loader::clean_logs_in_dir;
+    use super::super::loader::clean_logs_in_dir;
 
     let temp_dir = tempfile::tempdir().unwrap();
     let dir = temp_dir.path();
@@ -401,7 +393,7 @@ fn test_clean_logs_in_dir_only_removes_log_extension() {
 
 #[test]
 fn test_clean_logs_in_dir_empty_directory() {
-    use super::loader::clean_logs_in_dir;
+    use super::super::loader::clean_logs_in_dir;
 
     let temp_dir = tempfile::tempdir().unwrap();
 
@@ -413,7 +405,7 @@ fn test_clean_logs_in_dir_empty_directory() {
 
 #[test]
 fn test_clean_logs_in_dir_nonexistent_directory() {
-    use super::loader::clean_logs_in_dir;
+    use super::super::loader::clean_logs_in_dir;
 
     let result = clean_logs_in_dir(std::path::Path::new(
         "/nonexistent/path/that/does/not/exist",
@@ -428,7 +420,7 @@ fn test_clean_logs_in_dir_nonexistent_directory() {
 
 #[test]
 fn test_clean_logs_in_dir_reports_correct_bytes() {
-    use super::loader::clean_logs_in_dir;
+    use super::super::loader::clean_logs_in_dir;
 
     let temp_dir = tempfile::tempdir().unwrap();
     let dir = temp_dir.path();
@@ -527,10 +519,19 @@ fn test_very_old_config_backwards_compatible() {
 
     // Verify defaults applied correctly
     assert!(config.user.fail_open);
-    assert!(config.user.audit_tool_use, "audit_tool_use should default to true");
-    assert!(config.user.audit_prompts, "audit_prompts should default to true");
+    assert!(
+        config.user.audit_tool_use,
+        "audit_tool_use should default to true"
+    );
+    assert!(
+        config.user.audit_prompts,
+        "audit_prompts should default to true"
+    );
     assert!(!config.user.debug, "debug should default to false");
-    assert!(config.user.auto_upgrade, "auto_upgrade should default to true");
+    assert!(
+        config.user.auto_upgrade,
+        "auto_upgrade should default to true"
+    );
 
     // Verify other fields loaded correctly
     assert_eq!(config.install_id, "legacy-install-id");
@@ -747,7 +748,7 @@ fn test_config_save_to_path_fixes_insecure_file_permissions() {
 fn test_fix_config_file_permissions_on_load() {
     use std::os::unix::fs::PermissionsExt;
 
-    use super::loader::fix_config_file_permissions;
+    use super::super::loader::fix_config_file_permissions;
 
     let temp_dir = tempfile::tempdir().unwrap();
     let config_file = temp_dir.path().join("config.json");

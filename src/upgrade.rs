@@ -10,6 +10,8 @@
 //! - Randomized upgrade binary path to prevent pre-placement attacks
 //! - HOME environment validation
 
+#[cfg(test)]
+use std::time::SystemTime;
 use std::{
     collections::HashMap,
     env, fs,
@@ -17,7 +19,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     thread::sleep,
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
@@ -37,6 +39,7 @@ struct ReleaseInfo {
 
 use crate::{
     common::{EXECUTABLE_EXT, EXECUTABLE_NAME, PROJECT_NAME, PROJECT_VERSION, user_agent},
+    config::UpgradeConfig,
     default::get_embedded_default,
     hooks::binary_location,
 };
@@ -98,7 +101,7 @@ fn make_executable(file_path: &Path) -> Result<()> {
 fn move_file_replace_windows(src: &Path, dst: &Path) -> Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{
-        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
     };
 
     // Convert paths to null-terminated UTF-16 for Windows API
@@ -116,10 +119,7 @@ fn move_file_replace_windows(src: &Path, dst: &Path) -> Result<()> {
     };
 
     if result == 0 {
-        bail!(
-            "MoveFileExW failed: {}",
-            std::io::Error::last_os_error()
-        );
+        bail!("MoveFileExW failed: {}", std::io::Error::last_os_error());
     }
 
     Ok(())
@@ -365,8 +365,13 @@ fn atomic_replace_binary(src: &Path, dst: &Path) -> Result<()> {
     let temp_path = dst_dir.join(&temp_name);
 
     // Copy to temp file
-    let copy_result = fs::copy(src, &temp_path)
-        .with_context(|| format!("Unable to copy {} to {}", src.display(), temp_path.display()));
+    let copy_result = fs::copy(src, &temp_path).with_context(|| {
+        format!(
+            "Unable to copy {} to {}",
+            src.display(),
+            temp_path.display()
+        )
+    });
 
     if let Err(e) = copy_result {
         // Clean up partial temp file if it exists
@@ -421,12 +426,8 @@ fn atomic_replace_binary(src: &Path, dst: &Path) -> Result<()> {
         if let Err(e) = move_file_replace_windows(&temp_path, dst) {
             warn!("Failed to replace binary on Windows: {e}");
             let _ = fs::remove_file(&temp_path);
-            return Err(e).with_context(|| {
-                format!(
-                    "Unable to replace binary at {}",
-                    dst.display()
-                )
-            });
+            return Err(e)
+                .with_context(|| format!("Unable to replace binary at {}", dst.display()));
         }
     }
 
@@ -570,10 +571,7 @@ fn self_upgrade_with_force(force: bool, verbose: bool) -> Result<UpgradeResult> 
         }
 
         if let Err(e) = ret {
-            warn!(
-                "Unable to replace binary at {} ({e})",
-                dst.display()
-            );
+            warn!("Unable to replace binary at {} ({e})", dst.display());
 
             if 0 == attempts {
                 return Err(e);
@@ -582,6 +580,11 @@ fn self_upgrade_with_force(force: bool, verbose: bool) -> Result<UpgradeResult> 
 
         attempts = attempts.saturating_sub(1);
         sleep(Duration::from_secs(5));
+    }
+
+    // Record that an upgrade just succeeded
+    if let Err(e) = UpgradeConfig::load().record_upgrade() {
+        warn!("unable to save upgrade state: {e}");
     }
 
     // Return appropriate result
@@ -604,6 +607,7 @@ fn self_upgrade_with_force(force: bool, verbose: bool) -> Result<UpgradeResult> 
 ///   - `max_age`: Maximum age before file is considered old
 ///
 /// Returns: true if file is older than `max_age`, false if newer or on error
+#[cfg(test)]
 fn is_file_older_than(path: &Path, max_age: &Duration) -> bool {
     let Ok(metadata) = fs::metadata(path) else {
         return false;
@@ -621,20 +625,6 @@ fn is_file_older_than(path: &Path, max_age: &Duration) -> bool {
     };
 
     &elapsed > max_age
-}
-
-/// Checks if the current binary is older than the specified duration.
-///
-/// Parameters:
-///   - `max_age`: Maximum age before binary is considered old
-///
-/// Returns: true if binary is older than `max_age`, false otherwise
-fn is_binary_older(max_age: &Duration) -> bool {
-    let Ok(exe_path) = std::env::current_exe() else {
-        return false;
-    };
-
-    is_file_older_than(&exe_path, max_age)
 }
 
 /// Spawns a detached process on Unix systems.
@@ -780,9 +770,10 @@ fn spawn_upgrade_with_force(force: bool) -> Result<()> {
 
 /// Checks if an upgrade should be performed and triggers it if needed.
 ///
-/// Called on program exit. Only triggers upgrade if the binary is older than
-/// `DEF_UPGRADE_CHECK` (15 minutes) or `VB_FORCE_UPGRADE` env var is set.
-/// Runs silently without verbose output.
+/// Called on program exit. Acquires the upgrade lock first, then checks if at
+/// least `DEF_UPGRADE_CHECK` (15 minutes) has elapsed since the last poll.
+/// This avoids a TOCTOU race where multiple concurrent processes could all
+/// see `should_poll()` = true and redundantly hit the network.
 ///
 /// Parameters: None
 ///
@@ -790,12 +781,27 @@ fn spawn_upgrade_with_force(force: bool) -> Result<()> {
 pub fn poll_upgrade() -> Result<()> {
     let force_upgrade = env::var("VB_FORCE_UPGRADE").is_ok();
 
-    if is_binary_older(&DEF_UPGRADE_CHECK) || force_upgrade {
+    // Acquire the upgrade lock before checking poll state to prevent
+    // concurrent processes from all deciding to poll at the same time.
+    previous_upgrade_cleanup();
+
+    let Some(_lock) = UpgradeLock::acquire()? else {
+        // Another upgrade is already in progress
+        return Ok(());
+    };
+
+    let mut upgrade_config = UpgradeConfig::load();
+
+    if upgrade_config.should_poll(&DEF_UPGRADE_CHECK) || force_upgrade {
         info!("time to upgrade");
+        // Record that we polled, even if the upgrade itself fails or finds
+        // we are already on the latest version. This prevents hammering the
+        // server on repeated short-lived invocations.
+        if let Err(e) = upgrade_config.record_poll() {
+            warn!("unable to save upgrade poll state: {e}");
+        }
         // Auto-upgrade: never forces reinstall, not verbose (background operation)
-        upgrade(false, false)?;
-    } else {
-        previous_upgrade_cleanup();
+        upgrade_locked(false, false)?;
     }
 
     Ok(())
@@ -822,6 +828,18 @@ pub fn upgrade(force: bool, verbose: bool) -> Result<UpgradeResult> {
         return Ok(UpgradeResult::InProgress);
     };
 
+    upgrade_locked(force, verbose)
+}
+
+/// Performs the upgrade process assuming the caller already holds the
+/// [`UpgradeLock`].
+///
+/// Parameters:
+///   - `force`: If true, skip version check and always download/install
+///   - `verbose`: If true, print progress messages to stdout
+///
+/// Returns: `UpgradeResult` indicating what happened, Err on failure
+fn upgrade_locked(force: bool, verbose: bool) -> Result<UpgradeResult> {
     let bin_location = binary_location()?;
     let bin_current = env::current_exe()?;
 
@@ -884,7 +902,11 @@ mod tests {
 
         // Replace (destination doesn't exist)
         let result = atomic_replace_binary(&src, &dst);
-        assert!(result.is_ok(), "Atomic replace should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Atomic replace should succeed: {:?}",
+            result
+        );
 
         // Verify content
         let content = fs::read_to_string(&dst).expect("Failed to read dest");
@@ -902,7 +924,11 @@ mod tests {
         fs::write(&dst, b"old content").expect("Failed to write dest");
 
         let result = atomic_replace_binary(&src, &dst);
-        assert!(result.is_ok(), "Atomic replace should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Atomic replace should succeed: {:?}",
+            result
+        );
 
         // Verify new content replaced old content
         let content = fs::read_to_string(&dst).expect("Failed to read dest");
@@ -995,10 +1021,7 @@ mod tests {
     #[test]
     fn test_is_process_running_current() {
         let pid = std::process::id();
-        assert!(
-            is_process_running(pid),
-            "Current process should be running"
-        );
+        assert!(is_process_running(pid), "Current process should be running");
     }
 
     #[cfg(unix)]
@@ -1036,10 +1059,7 @@ mod tests {
     #[test]
     fn test_is_process_running_current_windows() {
         let pid = std::process::id();
-        assert!(
-            is_process_running(pid),
-            "Current process should be running"
-        );
+        assert!(is_process_running(pid), "Current process should be running");
     }
 
     #[cfg(windows)]
@@ -1086,7 +1106,10 @@ mod tests {
         assert!(
             leftover_files.is_empty(),
             "No temp or backup files should remain after successful replacement, found: {:?}",
-            leftover_files.iter().map(|e| e.file_name()).collect::<Vec<_>>()
+            leftover_files
+                .iter()
+                .map(|e| e.file_name())
+                .collect::<Vec<_>>()
         );
     }
 
