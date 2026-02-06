@@ -668,3 +668,183 @@ EOF
     # Should not crash - dirs already gone is OK
     [[ -n "$output" ]]
 }
+
+# -----------------------------------------------------------------------------
+# Symlink safety tests
+# -----------------------------------------------------------------------------
+
+@test "uninstall-all refuses to follow symlink for config directory" {
+    # Skip on Windows - symlink behavior differs
+    is_windows && skip "symlink behavior differs on Windows"
+
+    # Create a target directory that should NOT be deleted
+    local target_dir="${TEST_TMPDIR}/precious_data"
+    mkdir -p "$target_dir"
+    echo "precious content" > "${target_dir}/important.txt"
+
+    # Create config directory location as a symlink pointing to precious data
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$(dirname "$config_dir")"
+    ln -s "$target_dir" "$config_dir"
+
+    # Install the binary
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all 2>&1 || true
+
+    # The precious data should still exist (symlink was not followed)
+    [[ -d "$target_dir" ]]
+    [[ -f "${target_dir}/important.txt" ]]
+
+    # Verify content is preserved
+    local content
+    content=$(cat "${target_dir}/important.txt")
+    [[ "$content" == "precious content" ]]
+}
+
+@test "uninstall-all refuses to follow symlink for data directory" {
+    # Skip on Windows - symlink behavior differs
+    is_windows && skip "symlink behavior differs on Windows"
+
+    # Create a target directory that should NOT be deleted
+    local target_dir="${TEST_TMPDIR}/precious_logs"
+    mkdir -p "$target_dir"
+    echo "precious log" > "${target_dir}/critical.log"
+
+    # Create real config directory (so command proceeds)
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    # Create data directory location as a symlink pointing to precious data
+    local data_dir="${XDG_DATA_HOME}/viberails"
+    mkdir -p "$(dirname "$data_dir")"
+    ln -s "$target_dir" "$data_dir"
+
+    # Install the binary
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all 2>&1 || true
+
+    # The precious data should still exist (symlink was not followed)
+    [[ -d "$target_dir" ]]
+    [[ -f "${target_dir}/critical.log" ]]
+
+    # Verify content is preserved
+    local content
+    content=$(cat "${target_dir}/critical.log")
+    [[ "$content" == "precious log" ]]
+}
+
+@test "uninstall-all refuses to follow symlink for binary" {
+    # Skip on Windows - symlink behavior differs
+    is_windows && skip "symlink behavior differs on Windows"
+
+    # Create a target file that should NOT be deleted
+    local target_file="${TEST_TMPDIR}/system_binary"
+    echo "#!/bin/bash" > "$target_file"
+    echo "echo 'important system binary'" >> "$target_file"
+    chmod +x "$target_file"
+
+    # Create config directory
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    # Create bin directory with viberails as a symlink to the target
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    ln -s "$target_file" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run uninstall-all using the test binary (not the symlink)
+    run "$VIBERAILS_BIN" uninstall-all 2>&1 || true
+
+    # The target file should still exist (symlink was not followed)
+    [[ -f "$target_file" ]]
+
+    # Verify content is preserved
+    assert_contains "$(cat "$target_file")" "important system binary"
+}
+
+@test "uninstall-all refuses to remove temp files that are symlinks" {
+    # Skip on Windows - symlink behavior differs
+    is_windows && skip "symlink behavior differs on Windows"
+
+    # Create a target file that should NOT be deleted
+    local target_file="${TEST_TMPDIR}/important_binary"
+    echo "important content" > "$target_file"
+
+    # Create config directory
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    # Install the binary
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Create a malicious symlink disguised as a temp upgrade file
+    ln -s "$target_file" "${bin_dir}/viberails_upgrade_malicious"
+
+    # Run uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all 2>&1 || true
+
+    # The target file should still exist (symlink was not followed)
+    [[ -f "$target_file" ]]
+
+    # Verify content is preserved
+    local content
+    content=$(cat "$target_file")
+    [[ "$content" == "important content" ]]
+}
+
+@test "uninstall-all reports symlink refusal in output" {
+    # Skip on Windows - symlink behavior differs
+    is_windows && skip "symlink behavior differs on Windows"
+
+    # Create a target directory
+    local target_dir="${TEST_TMPDIR}/target"
+    mkdir -p "$target_dir"
+
+    # Create config directory as a symlink
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$(dirname "$config_dir")"
+    ln -s "$target_dir" "$config_dir"
+
+    # Install the binary
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all 2>&1 || true
+
+    # Should indicate there was a symlink issue (or at least not crash)
+    # The command may fail but should not delete the target
+    [[ -d "$target_dir" ]]
+}

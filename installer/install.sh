@@ -173,8 +173,9 @@ do_uninstall() {
     # Display version information
     "$tmp_file" -V
 
-    # Run uninstall subcommand
-    "$tmp_file" uninstall
+    # Run uninstall-all to completely remove viberails
+    # (removes hooks, binary, config, and data directories)
+    "$tmp_file" uninstall-all
 
     # Clean up temp directory
     rm -rf "$tmp_dir"
