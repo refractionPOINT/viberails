@@ -8,6 +8,11 @@ on:
         branches: ["master"]
     workflow_dispatch:
         inputs:
+            dry_run:
+                description: "Dry run: execute full pipeline (build, dist, sign) but skip the release upload"
+                required: false
+                default: false
+                type: boolean
             code_signing:
                 description: "Enable code signing"
                 required: false
@@ -352,7 +357,7 @@ jobs:
         # Use 'release' environment for manual approval gate before publishing.
         # Configure this environment in repo Settings -> Environments with required reviewers.
         environment: release
-        if: always() && startsWith(github.ref, 'refs/tags/') && needs.dist.result == 'success' && (needs.code-sign.result == 'success' || needs.code-sign.result == 'skipped')
+        if: always() && startsWith(github.ref, 'refs/tags/') && inputs.dry_run != true && needs.dist.result == 'success' && (needs.code-sign.result == 'success' || needs.code-sign.result == 'skipped')
 
         steps:
             - name: Download signed distribution artifacts
