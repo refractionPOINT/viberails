@@ -29,6 +29,15 @@ Note: Some upgrade tests require network access to the embedded upgrade URL and 
 timeout gracefully when unreachable. Full upgrade flow testing is limited since the
 upgrade URL is compiled into the binary.
 
+### Codex Metadata Tests (`codex_ppid.bats`)
+
+Tests for Codex callback cloud metadata:
+- **PPID field presence**: Verifies `meta_data.ppid` is included in outbound request payload
+- **PPID validity**: Verifies `meta_data.ppid` is a positive integer when emitted
+- **Metadata integrity**: Verifies the request still carries expected provider and notify fields
+
+These tests use a local mock HTTP server and isolated config data per test run.
+
 ## Prerequisites
 
 ### Required
@@ -101,6 +110,9 @@ The tests run automatically in GitHub Actions on:
 - Pushes to `master`
 - Tag releases
 
+The e2e job executes `bats tests/e2e/*.bats`, so newly added `.bats` files
+(including `codex_ppid.bats`) are picked up automatically.
+
 See `.github/workflows/build.yml` for the workflow configuration.
 
 ## Test Environment
@@ -121,6 +133,7 @@ This ensures tests don't interfere with your actual configuration.
 |------|---------|
 | `test_helpers.bash` | Common setup, teardown, and assertion functions |
 | `show_config.bats` | Show-config command and backwards compatibility tests |
+| `codex_ppid.bats` | Codex callback cloud payload metadata checks (`meta_data.ppid`) |
 | `upgrade.bats` | Upgrade command behavior tests |
 | `run_tests.sh` | Test runner with prerequisites check |
 | `README.md` | This documentation |
@@ -200,4 +213,3 @@ macOS doesn't have `flock` by default. Install via:
 ```bash
 brew install flock
 ```
-
