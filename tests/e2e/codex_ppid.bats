@@ -60,7 +60,7 @@ EOF
         echo "  HOME=$HOME" >&2
         echo "  XDG_CONFIG_HOME=$XDG_CONFIG_HOME" >&2
         echo "  OSTYPE=$OSTYPE" >&2
-        echo "  get_config_dir=$(get_config_dir)" >&2
+        echo "  VIBERAILS_CONFIG_DIR=$VIBERAILS_CONFIG_DIR" >&2
         return 1
     fi
 

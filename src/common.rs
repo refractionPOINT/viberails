@@ -100,6 +100,28 @@ fn validate_dir_override(env_name: &str, value: &str) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// Resolves the project data directory path without creating it.
+///
+/// If `VIBERAILS_DATA_DIR` is set, uses that path directly (validated for
+/// safety). Otherwise falls back to `dirs::data_dir()/viberails`.
+///
+/// Use this for operations that don't need the directory to exist (e.g.
+/// uninstall). For operations that need the directory, use `project_data_dir()`.
+///
+/// Parameters: None
+///
+/// Returns: Path to `~/.local/share/viberails` (or platform equivalent)
+pub fn project_data_dir_path() -> Result<PathBuf> {
+    if let Ok(override_dir) = env::var(ENV_DATA_DIR_OVERRIDE) {
+        let path = validate_dir_override(ENV_DATA_DIR_OVERRIDE, &override_dir)?;
+        info!("Using data directory override from {ENV_DATA_DIR_OVERRIDE}: {}", path.display());
+        Ok(path)
+    } else {
+        let data_dir = dirs::data_dir().ok_or_else(|| anyhow!("Unable to determine data directory. Ensure XDG_DATA_HOME or HOME environment variable is set"))?;
+        Ok(data_dir.join(PROJECT_NAME))
+    }
+}
+
 /// Returns the project data directory, creating it with secure permissions if needed.
 ///
 /// If `VIBERAILS_DATA_DIR` is set, uses that path directly (validated for
@@ -112,19 +134,34 @@ fn validate_dir_override(env_name: &str, value: &str) -> Result<PathBuf> {
 ///
 /// Returns: Path to `~/.local/share/viberails` (or platform equivalent)
 pub fn project_data_dir() -> Result<PathBuf> {
-    let project_data_dir = if let Ok(override_dir) = env::var(ENV_DATA_DIR_OVERRIDE) {
-        let path = validate_dir_override(ENV_DATA_DIR_OVERRIDE, &override_dir)?;
-        info!("Using data directory override from {ENV_DATA_DIR_OVERRIDE}: {}", path.display());
-        path
-    } else {
-        let data_dir = dirs::data_dir().ok_or_else(|| anyhow!("Unable to determine data directory. Ensure XDG_DATA_HOME or HOME environment variable is set"))?;
-        data_dir.join(PROJECT_NAME)
-    };
+    let dir = project_data_dir_path()?;
 
     // Create directory with secure permissions (0700 on Unix)
-    create_secure_directory(&project_data_dir)?;
+    create_secure_directory(&dir)?;
 
-    Ok(project_data_dir)
+    Ok(dir)
+}
+
+/// Resolves the project config directory path without creating it.
+///
+/// If `VIBERAILS_CONFIG_DIR` is set, uses that path directly (validated for
+/// safety). Otherwise falls back to `dirs::config_dir()/viberails`.
+///
+/// Use this for operations that don't need the directory to exist (e.g.
+/// uninstall). For operations that need the directory, use `project_config_dir()`.
+///
+/// Parameters: None
+///
+/// Returns: Path to `~/.config/viberails` (or platform equivalent)
+pub fn project_config_dir_path() -> Result<PathBuf> {
+    if let Ok(override_dir) = env::var(ENV_CONFIG_DIR_OVERRIDE) {
+        let path = validate_dir_override(ENV_CONFIG_DIR_OVERRIDE, &override_dir)?;
+        info!("Using config directory override from {ENV_CONFIG_DIR_OVERRIDE}: {}", path.display());
+        Ok(path)
+    } else {
+        let config_dir = dirs::config_dir().ok_or_else(|| anyhow!("Unable to determine config directory. Ensure XDG_CONFIG_HOME or HOME environment variable is set"))?;
+        Ok(config_dir.join(PROJECT_NAME))
+    }
 }
 
 /// Returns the project config directory, creating it with secure permissions if needed.
@@ -139,19 +176,12 @@ pub fn project_data_dir() -> Result<PathBuf> {
 ///
 /// Returns: Path to `~/.config/viberails` (or platform equivalent)
 pub fn project_config_dir() -> Result<PathBuf> {
-    let project_config_dir = if let Ok(override_dir) = env::var(ENV_CONFIG_DIR_OVERRIDE) {
-        let path = validate_dir_override(ENV_CONFIG_DIR_OVERRIDE, &override_dir)?;
-        info!("Using config directory override from {ENV_CONFIG_DIR_OVERRIDE}: {}", path.display());
-        path
-    } else {
-        let config_dir = dirs::config_dir().ok_or_else(|| anyhow!("Unable to determine config directory. Ensure XDG_CONFIG_HOME or HOME environment variable is set"))?;
-        config_dir.join(PROJECT_NAME)
-    };
+    let dir = project_config_dir_path()?;
 
     // Create directory with secure permissions (0700 on Unix)
-    create_secure_directory(&project_config_dir)?;
+    create_secure_directory(&dir)?;
 
-    Ok(project_config_dir)
+    Ok(dir)
 }
 
 /// Creates a directory with secure permissions (0700 on Unix).
@@ -220,6 +250,15 @@ fn create_secure_directory(dir: &std::path::Path) -> Result<()> {
         .with_context(|| format!("Unable to create directory: {}", dir.display()))?;
     Ok(())
 }
+
+/// Global mutex for tests that mutate process-wide env vars
+/// (VIBERAILS_CONFIG_DIR, VIBERAILS_DATA_DIR, VIBERAILS_BIN_DIR).
+///
+/// `cargo test` runs `#[test]` functions in parallel. Since `set_var`/`remove_var`
+/// mutate process-global state, tests sharing the same env var race unless serialized.
+/// All env-var-mutating tests must hold this lock for the duration of their execution.
+#[cfg(test)]
+pub(crate) static ENV_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(test)]
 mod tests {
@@ -450,6 +489,121 @@ mod tests {
         let result = validate_dir_override("TEST_VAR", "C:\\Users\\test\\viberails");
         assert!(result.is_ok());
     }
+
+    // -------------------------------------------------------------------------
+    // project_*_dir_path and validated_binary_dir tests
+    //
+    // These tests mutate process-global env vars. All env-var-mutating tests
+    // hold ENV_TEST_MUTEX to prevent races under parallel test execution.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_project_config_dir_path_vs_project_config_dir() {
+        let _lock = ENV_TEST_MUTEX.lock().unwrap();
+
+        // Sub-test 1: _path variant does NOT create the directory
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("no_create_config");
+
+        // SAFETY: env mutation serialized by ENV_TEST_MUTEX
+        unsafe { std::env::set_var("VIBERAILS_CONFIG_DIR", config_path.as_os_str()) };
+
+        let result = project_config_dir_path();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), config_path);
+        assert!(!config_path.exists(), "_path variant must not create directory");
+
+        unsafe { std::env::remove_var("VIBERAILS_CONFIG_DIR") };
+
+        // Sub-test 2: creating variant DOES create the directory
+        let config_path2 = dir.path().join("create_config");
+
+        unsafe { std::env::set_var("VIBERAILS_CONFIG_DIR", config_path2.as_os_str()) };
+
+        let result = project_config_dir();
+        assert!(result.is_ok());
+        assert!(config_path2.exists());
+        assert!(config_path2.is_dir());
+
+        unsafe { std::env::remove_var("VIBERAILS_CONFIG_DIR") };
+    }
+
+    #[test]
+    fn test_project_data_dir_path_vs_project_data_dir() {
+        let _lock = ENV_TEST_MUTEX.lock().unwrap();
+
+        // Sub-test 1: _path variant does NOT create the directory
+        let dir = tempfile::tempdir().unwrap();
+        let data_path = dir.path().join("no_create_data");
+
+        // SAFETY: env mutation serialized by ENV_TEST_MUTEX
+        unsafe { std::env::set_var("VIBERAILS_DATA_DIR", data_path.as_os_str()) };
+
+        let result = project_data_dir_path();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), data_path);
+        assert!(!data_path.exists(), "_path variant must not create directory");
+
+        unsafe { std::env::remove_var("VIBERAILS_DATA_DIR") };
+
+        // Sub-test 2: creating variant DOES create the directory
+        let data_path2 = dir.path().join("create_data");
+
+        unsafe { std::env::set_var("VIBERAILS_DATA_DIR", data_path2.as_os_str()) };
+
+        let result = project_data_dir();
+        assert!(result.is_ok());
+        assert!(data_path2.exists());
+        assert!(data_path2.is_dir());
+
+        unsafe { std::env::remove_var("VIBERAILS_DATA_DIR") };
+    }
+
+    #[test]
+    fn test_validated_binary_dir_override_validation() {
+        let _lock = ENV_TEST_MUTEX.lock().unwrap();
+
+        // Sub-test 1: rejects relative path
+        // SAFETY: env mutation serialized by ENV_TEST_MUTEX
+        unsafe { std::env::set_var("VIBERAILS_BIN_DIR", "relative/bin") };
+
+        let result = validated_binary_dir();
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("must be an absolute path"),
+            "Error should mention absolute path: {err}"
+        );
+
+        // Sub-test 2: rejects path traversal
+        #[cfg(unix)]
+        let bad_path = "/tmp/../etc/bin";
+        #[cfg(windows)]
+        let bad_path = "C:\\tmp\\..\\etc\\bin";
+
+        unsafe { std::env::set_var("VIBERAILS_BIN_DIR", bad_path) };
+
+        let result = validated_binary_dir();
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("parent directory references"),
+            "Error should mention parent directory references: {err}"
+        );
+
+        // Sub-test 3: accepts valid absolute override
+        let dir = tempfile::tempdir().unwrap();
+        let bin_path = dir.path().join("valid_bin");
+
+        unsafe { std::env::set_var("VIBERAILS_BIN_DIR", bin_path.as_os_str()) };
+
+        let result = validated_binary_dir();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), bin_path);
+        assert!(bin_path.exists(), "Override path should have been created");
+
+        unsafe { std::env::remove_var("VIBERAILS_BIN_DIR") };
+    }
 }
 
 /// Returns the validated home directory for the current user.
@@ -595,23 +749,8 @@ const ENV_BIN_DIR_OVERRIDE: &str = "VIBERAILS_BIN_DIR";
 pub fn validated_binary_dir() -> Result<PathBuf> {
     // Check for explicit override (for testing/CI)
     if let Ok(override_dir) = std::env::var(ENV_BIN_DIR_OVERRIDE) {
-        let bin_dir = PathBuf::from(&override_dir);
-
-        // Still validate the override path for safety
-        if !bin_dir.is_absolute() {
-            bail!(
-                "{ENV_BIN_DIR_OVERRIDE} must be an absolute path: {override_dir}"
-            );
-        }
-
-        // Check for path traversal attempts
-        for component in bin_dir.components() {
-            if let std::path::Component::ParentDir = component {
-                bail!(
-                    "{ENV_BIN_DIR_OVERRIDE} contains parent directory references: {override_dir}"
-                );
-            }
-        }
+        // Reuse validate_dir_override for consistent absolute-path + traversal checks
+        let bin_dir = validate_dir_override(ENV_BIN_DIR_OVERRIDE, &override_dir)?;
 
         if !bin_dir.exists() {
             fs::create_dir_all(&bin_dir)

@@ -1328,3 +1328,192 @@ EOF
     assert_exit_code 0 "$status"
     [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
 }
+
+# ============================================================================
+# Resilience tests — uninstall-all continues when some components fail
+# ============================================================================
+
+@test "uninstall-all still cleans config and data when binary dir is invalid" {
+    # When VIBERAILS_BIN_DIR points at something invalid, uninstall-all should
+    # still clean up config and data directories rather than bailing entirely.
+    local config_dir="${VIBERAILS_CONFIG_DIR}"
+    local data_dir="${VIBERAILS_DATA_DIR}"
+
+    mkdir -p "$config_dir" "$data_dir"
+    echo '{}' > "${config_dir}/config.json"
+    echo 'log data' > "${data_dir}/debug.log"
+
+    # Point bin dir at a relative path, which will fail validation.
+    # Config and data cleanup should still proceed.
+    export VIBERAILS_BIN_DIR="relative/invalid/path"
+
+    run "$VIBERAILS_BIN" uninstall-all 2>&1 || true
+
+    # Config and data should be cleaned up despite binary failure
+    [[ ! -d "$config_dir" ]] || {
+        echo "Config dir should have been removed: $config_dir" >&2
+        return 1
+    }
+    [[ ! -d "$data_dir" ]] || {
+        echo "Data dir should have been removed: $data_dir" >&2
+        return 1
+    }
+}
+
+@test "uninstall-all does not recreate config dir when it was already absent" {
+    # Before the fix, uninstall_config would call project_config_dir() which
+    # eagerly creates the directory. With project_config_dir_path() this
+    # should no longer happen.
+    local config_dir="${VIBERAILS_CONFIG_DIR}"
+
+    # Ensure config dir does NOT exist
+    [[ ! -d "$config_dir" ]]
+
+    local bin_dir="${VIBERAILS_BIN_DIR}"
+    mkdir -p "$bin_dir"
+
+    local config_parent
+    config_parent="$(dirname "$config_dir")"
+    mkdir -p "$config_parent"
+    cat > "${config_parent}/viberails_config_dummy" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+
+    # Config dir should still not exist (not recreated by uninstall path)
+    [[ ! -d "$config_dir" ]] || {
+        echo "Config dir should NOT have been recreated: $config_dir" >&2
+        return 1
+    }
+}
+
+@test "uninstall-all does not recreate data dir when it was already absent" {
+    local data_dir="${VIBERAILS_DATA_DIR}"
+
+    # Ensure data dir does NOT exist
+    [[ ! -d "$data_dir" ]]
+
+    local bin_dir="${VIBERAILS_BIN_DIR}"
+    mkdir -p "$bin_dir"
+
+    local config_dir="${VIBERAILS_CONFIG_DIR}"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+
+    # Data dir should still not exist (not recreated by uninstall path)
+    [[ ! -d "$data_dir" ]] || {
+        echo "Data dir should NOT have been recreated: $data_dir" >&2
+        return 1
+    }
+}
+
+@test "uninstall-all reports correct output for full cleanup" {
+    local bin_dir="${VIBERAILS_BIN_DIR}"
+    local config_dir="${VIBERAILS_CONFIG_DIR}"
+    local data_dir="${VIBERAILS_DATA_DIR}"
+
+    mkdir -p "$bin_dir" "$config_dir" "$data_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+    echo "log" > "${data_dir}/debug.log"
+
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+
+    assert_exit_code 0 "$status"
+    assert_contains "$output" "Binary removed"
+    assert_contains "$output" "Configuration removed"
+    assert_contains "$output" "Data directory removed"
+    assert_contains "$output" "Full cleanup complete"
+}
+
+# -----------------------------------------------------------------------------
+# Failure detection tests — uninstall-all returns error on partial failures
+# -----------------------------------------------------------------------------
+
+@test "uninstall-all returns non-zero when config dir is a symlink (partial failure)" {
+    # Skip on Windows - symlink behavior differs
+    is_windows && skip "symlink behavior differs on Windows"
+
+    # Create a target directory that should NOT be deleted
+    local target_dir="${TEST_TMPDIR}/precious_data"
+    mkdir -p "$target_dir"
+    echo "precious" > "${target_dir}/important.txt"
+
+    # Config dir is a symlink — safe_remove_dir_all refuses symlinks
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$(dirname "$config_dir")"
+    ln -s "$target_dir" "$config_dir"
+
+    # Data dir is real — should still be cleaned up despite config failure
+    local data_dir="${XDG_DATA_HOME}/viberails"
+    mkdir -p "$data_dir"
+    echo "cleanup me" > "${data_dir}/log.txt"
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run uninstall-all — should return non-zero due to symlink refusal
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all 2>&1
+    assert_exit_code 1 "$status"
+
+    # Binary should still be cleaned up
+    [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
+
+    # Data dir should still be cleaned up (independent of config failure)
+    [[ ! -d "$data_dir" ]]
+
+    # Precious data must survive
+    [[ -f "${target_dir}/important.txt" ]]
+}
+
+@test "uninstall-all returns non-zero when binary dir override is invalid" {
+    # Invalid bin dir means binary_location fails, but config/data
+    # cleanup should still proceed.
+    local config_dir="${VIBERAILS_CONFIG_DIR}"
+    local data_dir="${VIBERAILS_DATA_DIR}"
+    mkdir -p "$config_dir" "$data_dir"
+
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+    echo "log" > "${data_dir}/debug.log"
+
+    # Invalid relative path triggers validation failure
+    export VIBERAILS_BIN_DIR="relative/invalid"
+
+    run "$VIBERAILS_BIN" uninstall-all 2>&1
+    assert_exit_code 1 "$status"
+
+    # Config and data should still be cleaned up despite binary failure
+    [[ ! -d "$config_dir" ]]
+    [[ ! -d "$data_dir" ]]
+}

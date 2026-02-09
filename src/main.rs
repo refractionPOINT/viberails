@@ -198,8 +198,12 @@ fn init_callback_logging() -> Result<()> {
 ///
 /// Parameters: None
 ///
-/// Returns: Result indicating success or failure
-fn show_menu() -> Result<()> {
+/// Returns: A tuple of (`ran_uninstall_all`, result). The bool is always valid
+///   regardless of whether the action succeeded — even a *failed* uninstall-all
+///   may have partially cleaned up, so the caller should skip auto-upgrade either way.
+#[allow(clippy::too_many_lines)]
+fn show_menu() -> (bool, Result<()>) {
+    let mut ran_uninstall_all = false;
     loop {
         let options = get_menu_options();
         let items: Vec<(&str, Option<char>)> =
@@ -211,11 +215,16 @@ fn show_menu() -> Result<()> {
             Some("↑↓/keys navigate, Enter select, Esc cancel"),
             Some(PROJECT_VERSION),
         )
-        .context("Failed to read menu selection")?;
+        .context("Failed to read menu selection");
+
+        let selection_idx = match selection_idx {
+            Ok(s) => s,
+            Err(e) => return (ran_uninstall_all, Err(e)),
+        };
 
         // Handle cancellation (Esc) - exit the loop
         let Some(idx) = selection_idx else {
-            return Ok(());
+            return (ran_uninstall_all, Ok(()));
         };
 
         // Get the action for the selected index
@@ -232,17 +241,23 @@ fn show_menu() -> Result<()> {
                     wait_for_keypress();
                     continue;
                 }
-                install(None)?;
+                if let Err(e) = install(None) {
+                    return (ran_uninstall_all, Err(e));
+                }
                 open_team_dashboard();
-                return Ok(()); // Exit after successful installation
+                return (ran_uninstall_all, Ok(()));
             }
             Some(MenuAction::JoinTeam) => {
-                let url = text_prompt::<fn(&str) -> viberails::tui::ValidationResult>(
+                let url = match text_prompt::<fn(&str) -> viberails::tui::ValidationResult>(
                     "Enter the team URL:",
                     Some("Enter to submit, Esc to cancel"),
                     None,
                 )
-                .context("Failed to read team URL")?;
+                .context("Failed to read team URL")
+                {
+                    Ok(u) => u,
+                    Err(e) => return (ran_uninstall_all, Err(e)),
+                };
 
                 let Some(url) = url else {
                     continue; // User cancelled, show menu again
@@ -254,9 +269,11 @@ fn show_menu() -> Result<()> {
                     wait_for_keypress();
                     continue;
                 }
-                install(None)?;
+                if let Err(e) = install(None) {
+                    return (ran_uninstall_all, Err(e));
+                }
                 open_team_dashboard();
-                return Ok(()); // Exit after successful installation
+                return (ran_uninstall_all, Ok(()));
             }
             Some(MenuAction::InstallHooks) => {
                 if !is_authorized() {
@@ -267,8 +284,10 @@ fn show_menu() -> Result<()> {
                     );
                     continue;
                 }
-                install(None)?;
-                return Ok(()); // Exit after successful installation
+                if let Err(e) = install(None) {
+                    return (ran_uninstall_all, Err(e));
+                }
+                return (ran_uninstall_all, Ok(()));
             }
             Some(MenuAction::UninstallHooks) => {
                 let r = uninstall_hooks();
@@ -277,6 +296,7 @@ fn show_menu() -> Result<()> {
             }
             Some(MenuAction::UninstallAll) => {
                 let r = uninstall_all();
+                ran_uninstall_all = true;
                 wait_for_keypress();
                 r
             }
@@ -290,11 +310,13 @@ fn show_menu() -> Result<()> {
                 wait_for_keypress();
                 r
             }
-            Some(MenuAction::Quit) | None => return Ok(()),
+            Some(MenuAction::Quit) | None => return (ran_uninstall_all, Ok(())),
         };
 
-        // If an action failed, propagate the error
-        result?;
+        // If an action failed, propagate the error while preserving the flag
+        if let Err(e) = result {
+            return (ran_uninstall_all, Err(e));
+        }
     }
 }
 
@@ -315,9 +337,10 @@ fn main() -> Result<()> {
         )
     );
 
-    // Skip auto-upgrade after full uninstall - it would re-download the binary
-    // and recreate config files we just removed
-    let is_uninstall_all = matches!(args.command, Some(Command::UninstallAll));
+    // Skip auto-upgrade after full uninstall — it would re-download the binary
+    // and recreate config files we just removed.
+    // Tracks both CLI (Command::UninstallAll) and TUI menu (show_menu returns true).
+    let mut is_uninstall_all = matches!(args.command, Some(Command::UninstallAll));
 
     if is_callback {
         init_callback_logging()?;
@@ -326,7 +349,16 @@ fn main() -> Result<()> {
     }
 
     let ret = match args.command {
-        None => show_menu(),
+        None => {
+            // show_menu returns (bool, Result) — the flag is always valid even
+            // when the action failed, since a failed uninstall-all may have
+            // partially cleaned up and we must not re-download via upgrade poll.
+            let (did_uninstall_all, menu_result) = show_menu();
+            if did_uninstall_all {
+                is_uninstall_all = true;
+            }
+            menu_result
+        }
         Some(Command::Install { providers }) => install(providers.as_deref()),
         Some(Command::UninstallHooks) => uninstall_hooks(),
         Some(Command::UninstallAll) => uninstall_all(),

@@ -235,6 +235,8 @@ mod tests {
 
     #[test]
     fn test_get_log_file_path_normal_mode() {
+        // Hold mutex — get_log_file_path reads VIBERAILS_DATA_DIR via project_data_dir()
+        let _lock = crate::common::ENV_TEST_MUTEX.lock().unwrap();
         let path = get_log_file_path(Path::new("test.log"), false).unwrap();
 
         // Should NOT be in debug directory
@@ -251,6 +253,7 @@ mod tests {
 
     #[test]
     fn test_get_log_file_path_debug_mode() {
+        let _lock = crate::common::ENV_TEST_MUTEX.lock().unwrap();
         let path = get_log_file_path(Path::new("test.log"), true).unwrap();
 
         // Should be in debug directory
@@ -267,6 +270,7 @@ mod tests {
 
     #[test]
     fn test_get_log_file_path_debug_mode_unique_filename() {
+        let _lock = crate::common::ENV_TEST_MUTEX.lock().unwrap();
         let path = get_log_file_path(Path::new("test.log"), true).unwrap();
 
         // Debug mode should generate unique filename with timestamp
@@ -285,6 +289,7 @@ mod tests {
 
     #[test]
     fn test_get_log_file_path_preserves_filename_in_normal_mode() {
+        let _lock = crate::common::ENV_TEST_MUTEX.lock().unwrap();
         let filename = "my-custom-log.log";
         let path = get_log_file_path(Path::new(filename), false).unwrap();
 
@@ -302,6 +307,7 @@ mod tests {
     fn test_get_log_file_path_debug_directory_permissions() {
         use std::os::unix::fs::PermissionsExt;
 
+        let _lock = crate::common::ENV_TEST_MUTEX.lock().unwrap();
         let path = get_log_file_path(Path::new("test.log"), true).unwrap();
         let debug_dir = path.parent().unwrap();
 
@@ -322,6 +328,7 @@ mod tests {
     fn test_debug_file_created_with_secure_permissions() {
         use std::os::unix::fs::PermissionsExt;
 
+        let _lock = crate::common::ENV_TEST_MUTEX.lock().unwrap();
         // Get a debug log path and create the file manually using our secure method
         let path = get_log_file_path(Path::new("test.log"), true).unwrap();
 

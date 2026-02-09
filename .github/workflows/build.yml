@@ -38,10 +38,14 @@ concurrency:
 
 env:
     CARGO_TERM_COLOR: always
+    # Authenticate API requests to avoid 429 rate limits when downloading
+    # action tarballs (unauthenticated: 60 req/hr, authenticated: 1000 req/hr)
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
     test:
         if: inputs.skip_tests != true
+        timeout-minutes: 10
         strategy:
             fail-fast: false
             matrix:
@@ -76,6 +80,7 @@ jobs:
 
     e2e-test:
         if: inputs.skip_tests != true
+        timeout-minutes: 10
         strategy:
             fail-fast: false
             matrix:
@@ -122,6 +127,7 @@ jobs:
 
     build:
         needs: [test, e2e-test]
+        timeout-minutes: 10
         if: always() && (needs.test.result == 'success' || needs.test.result == 'skipped') && (needs.e2e-test.result == 'success' || needs.e2e-test.result == 'skipped')
         strategy:
             matrix:
@@ -214,6 +220,7 @@ jobs:
 
     dist:
         needs: build
+        timeout-minutes: 5
         if: always() && needs.build.result == 'success'
         runs-on: ubuntu-latest
 
@@ -275,6 +282,7 @@ jobs:
 
     code-sign:
         needs: dist
+        timeout-minutes: 15
         runs-on: ubuntu-latest
         # No environment gate - signing runs automatically on tags.
         # Approval is required on the release job before publishing.
@@ -353,6 +361,7 @@ jobs:
 
     release:
         needs: [dist, code-sign]
+        timeout-minutes: 10
         runs-on: ubuntu-latest
         # Use 'release' environment for manual approval gate before publishing.
         # Configure this environment in repo Settings -> Environments with required reviewers.

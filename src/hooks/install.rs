@@ -8,20 +8,22 @@ use colored::Colorize;
 use log::{error, info, warn};
 
 /// Result of a safe directory removal attempt.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum SafeRemoveResult {
     /// Directory was successfully removed
     Removed,
     /// Directory didn't exist (not an error)
     NotFound,
+    /// Path exists but is not a directory (e.g. a regular file)
+    NotADirectory,
     /// Path is a symlink - refused to remove for safety
     SymlinkRefused,
 }
 
 use crate::{
     common::{
-        EXECUTABLE_NAME, PROJECT_NAME, display_authorize_help, print_header, project_config_dir,
-        project_data_dir, validated_binary_dir,
+        EXECUTABLE_NAME, PROJECT_NAME, display_authorize_help, print_header,
+        project_config_dir_path, project_data_dir_path, validated_binary_dir,
     },
     config::Config,
     providers::{ProviderRegistry, select_providers, select_providers_for_uninstall},
@@ -200,6 +202,35 @@ fn display_results(results: &[InstallResult]) {
     }
 }
 
+/// Check hook removal results for failures.
+///
+/// Returns `true` if all hook operations succeeded, `false` if any provider
+/// returned empty results (provider creation failed) or any individual hook
+/// removal returned an error.
+///
+/// Parameters:
+///   - `results_per_provider`: Slice of (`provider_id`, results) pairs from each provider
+///
+/// Returns: `true` if all results are non-empty and successful, `false` otherwise
+fn check_hook_results(results_per_provider: &[(&str, &[InstallResult])]) -> bool {
+    for (provider_id, results) in results_per_provider {
+        // Empty results means provider creation failed silently
+        if results.is_empty() {
+            warn!("Provider {provider_id} returned no results — creation may have failed");
+            return false;
+        }
+
+        // Check for individual hook removal failures
+        for result in *results {
+            if result.result.is_err() {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
 /// Safely removes a file, refusing to follow symlinks.
 ///
 /// This prevents symlink attacks where a malicious symlink could trick
@@ -267,8 +298,8 @@ fn safe_remove_dir_all(path: &Path) -> Result<SafeRemoveResult> {
                 return Ok(SafeRemoveResult::SymlinkRefused);
             }
             if !metadata.is_dir() {
-                warn!("{} is not a directory", path.display());
-                return Ok(SafeRemoveResult::NotFound);
+                warn!("{} exists but is not a directory", path.display());
+                return Ok(SafeRemoveResult::NotADirectory);
             }
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -366,8 +397,16 @@ fn uninstall_binary(dst: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Removes the config directory without recreating it first.
+///
+/// Uses `project_config_dir_path()` to resolve the path (no directory creation),
+/// then delegates to `safe_remove_dir_all`.
+///
+/// Parameters: None
+///
+/// Returns: `Ok(())` on success, Err on failure
 fn uninstall_config() -> Result<()> {
-    let config_dir = project_config_dir()?;
+    let config_dir = project_config_dir_path()?;
 
     match safe_remove_dir_all(&config_dir)? {
         SafeRemoveResult::Removed => {
@@ -375,6 +414,12 @@ fn uninstall_config() -> Result<()> {
         }
         SafeRemoveResult::NotFound => {
             // Already logged in safe_remove_dir_all
+        }
+        SafeRemoveResult::NotADirectory => {
+            warn!(
+                "Config path {} is not a directory, skipping removal",
+                config_dir.display()
+            );
         }
         SafeRemoveResult::SymlinkRefused => {
             bail!(
@@ -389,11 +434,14 @@ fn uninstall_config() -> Result<()> {
 
 /// Removes the data directory containing debug logs, upgrade state, etc.
 ///
+/// Uses `project_data_dir_path()` to resolve the path (no directory creation),
+/// then delegates to `safe_remove_dir_all`.
+///
 /// Parameters: None
 ///
 /// Returns: `Ok(())` on success, Err on failure
 fn uninstall_data_dir() -> Result<()> {
-    let data_dir = project_data_dir()?;
+    let data_dir = project_data_dir_path()?;
 
     match safe_remove_dir_all(&data_dir)? {
         SafeRemoveResult::Removed => {
@@ -401,6 +449,12 @@ fn uninstall_data_dir() -> Result<()> {
         }
         SafeRemoveResult::NotFound => {
             // Already logged in safe_remove_dir_all
+        }
+        SafeRemoveResult::NotADirectory => {
+            warn!(
+                "Data path {} is not a directory, skipping removal",
+                data_dir.display()
+            );
         }
         SafeRemoveResult::SymlinkRefused => {
             bail!(
@@ -435,8 +489,11 @@ fn cleanup_upgrade_files(bin_dir: &Path) -> usize {
     let upgrade_prefix = format!("{PROJECT_NAME}_upgrade_");
     let new_binary_prefix = format!(".{PROJECT_NAME}_new_");
 
-    // Remove lock file if it exists (using safe removal)
-    if lock_file.exists() && safe_remove_file(&lock_file).is_ok() {
+    // Pre-check with symlink_metadata (not exists() which follows symlinks).
+    // The actual safety check is inside safe_remove_file — this is only
+    // for counting purposes.
+    let lock_present = fs::symlink_metadata(&lock_file).is_ok();
+    if lock_present && safe_remove_file(&lock_file).is_ok() {
         cleaned += 1;
     }
 
@@ -663,10 +720,17 @@ pub fn uninstall_hooks() -> Result<()> {
 /// Returns: `Ok(())` on success, Err on failure
 pub fn uninstall_all() -> Result<()> {
     let mut success = true;
-    let dst = binary_location()?;
-    let bin_dir = dst
-        .parent()
-        .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+
+    // Resolve the binary location — failure here should NOT block the rest
+    // of cleanup (hooks, config, data). The user may be running uninstall-all
+    // on a system where HOME is unset or bin dir can't be determined.
+    let binary_info = binary_location().and_then(|dst| {
+        let bin_dir = dst
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| anyhow!("Binary path has no parent directory: {}", dst.display()))?;
+        Ok((dst, bin_dir))
+    });
 
     let registry = ProviderRegistry::new();
 
@@ -680,32 +744,60 @@ pub fn uninstall_all() -> Result<()> {
     if providers_with_hooks.is_empty() {
         println!("No hooks are currently installed.");
     } else {
-        // Uninstall hooks for all providers that have them installed
-        let mut all_results = Vec::new();
+        // Uninstall hooks for all providers that have them installed.
+        // Collect per-provider results so check_hook_results can detect
+        // both empty-result providers (creation failure) and individual errors.
+        let mut per_provider: Vec<(&str, Vec<InstallResult>)> = Vec::new();
 
         for discovery in &providers_with_hooks {
             let results = uninstall_hooks_for_provider(&registry, discovery.id);
-            all_results.extend(results);
+            per_provider.push((discovery.id, results));
         }
+
+        // Build refs for the check helper
+        let refs: Vec<(&str, &[InstallResult])> = per_provider
+            .iter()
+            .map(|(id, r)| (*id, r.as_slice()))
+            .collect();
+
+        if !check_hook_results(&refs) {
+            success = false;
+        }
+
+        // Flatten for display
+        let all_results: Vec<_> = per_provider
+            .into_iter()
+            .flat_map(|(_, results)| results)
+            .collect();
 
         display_results(&all_results);
     }
 
-    // Clean up upgrade-related files (lock files, temp binaries)
-    let cleaned_files = cleanup_upgrade_files(&bin_dir);
-    if cleaned_files > 0 {
-        println!("\nCleaned up {cleaned_files} temporary file(s).");
+    // Binary-dependent cleanup: upgrade files and binary removal
+    match &binary_info {
+        Ok((dst, bin_dir)) => {
+            // Clean up upgrade-related files (lock files, temp binaries)
+            let cleaned_files = cleanup_upgrade_files(bin_dir);
+            if cleaned_files > 0 {
+                println!("\nCleaned up {cleaned_files} temporary file(s).");
+            }
+
+            // Delete the binary
+            if let Err(e) = uninstall_binary(dst) {
+                error!("Unable to delete binary: {e}");
+                success = false;
+            } else {
+                println!("Binary removed: {}", dst.display());
+            }
+        }
+        Err(e) => {
+            error!("Unable to determine binary location: {e}");
+            error!("Skipping binary and upgrade file cleanup, continuing with config/data removal.");
+            success = false;
+        }
     }
 
-    // Delete the binary
-    if let Err(e) = uninstall_binary(&dst) {
-        error!("Unable to delete binary: {e}");
-        success = false;
-    } else {
-        println!("Binary removed: {}", dst.display());
-    }
-
-    // Delete config directory
+    // Delete config directory (independent of binary location)
     if let Err(e) = uninstall_config() {
         error!("Unable to delete config: {e}");
         success = false;
@@ -713,7 +805,7 @@ pub fn uninstall_all() -> Result<()> {
         println!("Configuration removed.");
     }
 
-    // Delete data directory (debug logs, upgrade state, etc.)
+    // Delete data directory (independent of binary location)
     if let Err(e) = uninstall_data_dir() {
         error!("Unable to delete data directory: {e}");
         success = false;
@@ -803,14 +895,14 @@ mod tests {
     }
 
     #[test]
-    fn test_safe_remove_dir_all_returns_not_found_for_regular_file() {
+    fn test_safe_remove_dir_all_returns_not_a_directory_for_regular_file() {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("not_a_dir.txt");
         fs::write(&file_path, "content").unwrap();
 
-        // A regular file is not a directory — should return NotFound
+        // A regular file is not a directory — should return NotADirectory
         let result = safe_remove_dir_all(&file_path).unwrap();
-        assert!(matches!(result, SafeRemoveResult::NotFound));
+        assert_eq!(result, SafeRemoveResult::NotADirectory);
 
         // File should still exist (we didn't remove it)
         assert!(file_path.exists());
@@ -1129,5 +1221,250 @@ mod tests {
         fs::write(&empty, "").unwrap();
 
         assert!(!is_current_executable(&empty));
+    }
+
+    // -------------------------------------------------------------------------
+    // SafeRemoveResult::NotADirectory tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_safe_remove_dir_all_not_a_directory_leaves_file_intact() {
+        // When safe_remove_dir_all encounters a regular file, it should
+        // return NotADirectory and leave the file untouched.
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("regular_file.dat");
+        fs::write(&file_path, "important data").unwrap();
+
+        let result = safe_remove_dir_all(&file_path).unwrap();
+        assert_eq!(result, SafeRemoveResult::NotADirectory);
+
+        // File must still exist with original content
+        assert!(file_path.exists());
+        assert_eq!(fs::read_to_string(&file_path).unwrap(), "important data");
+    }
+
+    #[test]
+    fn test_safe_remove_dir_all_empty_dir_returns_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("empty_dir");
+        fs::create_dir(&target).unwrap();
+
+        let result = safe_remove_dir_all(&target).unwrap();
+        assert_eq!(result, SafeRemoveResult::Removed);
+        assert!(!target.exists());
+    }
+
+    // -------------------------------------------------------------------------
+    // cleanup_upgrade_files: symlink_metadata pre-check tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_cleanup_upgrade_files_does_not_count_missing_lock_file() {
+        // When the lock file doesn't exist, cleaned count should be 0
+        let dir = tempfile::tempdir().unwrap();
+        let bin_dir = dir.path();
+        // No lock file created — just an unrelated file
+        fs::write(bin_dir.join("unrelated.txt"), "data").unwrap();
+
+        let cleaned = cleanup_upgrade_files(bin_dir);
+        assert_eq!(cleaned, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_cleanup_upgrade_files_refuses_symlink_lock_file() {
+        // If the lock file is a symlink, safe_remove_file should refuse it
+        // and it should NOT be counted as cleaned.
+        let dir = tempfile::tempdir().unwrap();
+        let bin_dir = dir.path();
+
+        let target = bin_dir.join("real_lock_target");
+        fs::write(&target, "lock data").unwrap();
+        let lock_file = bin_dir.join(".viberails.upgrade.lock");
+        std::os::unix::fs::symlink(&target, &lock_file).unwrap();
+
+        let cleaned = cleanup_upgrade_files(bin_dir);
+        // Symlink lock file should be refused, not counted
+        assert_eq!(cleaned, 0);
+        // Target should be untouched
+        assert!(target.exists());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "lock data");
+    }
+
+    // -------------------------------------------------------------------------
+    // uninstall_config / uninstall_data_dir path-only resolution tests
+    //
+    // These tests mutate process-global env vars. All env-var-mutating tests
+    // hold ENV_TEST_MUTEX to prevent races under parallel test execution.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_uninstall_config_no_create_and_remove() {
+        let _lock = crate::common::ENV_TEST_MUTEX.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+
+        // Sub-test 1: uninstall_config does NOT create the dir when absent
+        let config_dir = dir.path().join("config_absent").join("viberails");
+
+        // SAFETY: env mutation serialized by ENV_TEST_MUTEX
+        unsafe { std::env::set_var("VIBERAILS_CONFIG_DIR", config_dir.as_os_str()) };
+
+        assert!(!config_dir.exists());
+        let result = uninstall_config();
+        assert!(result.is_ok());
+        assert!(!config_dir.exists(), "uninstall_config must NOT create dir");
+
+        // Sub-test 2: uninstall_config removes an existing dir
+        let config_dir2 = dir.path().join("config_present").join("viberails");
+        fs::create_dir_all(&config_dir2).unwrap();
+        fs::write(config_dir2.join("config.json"), "{}").unwrap();
+
+        unsafe { std::env::set_var("VIBERAILS_CONFIG_DIR", config_dir2.as_os_str()) };
+
+        let result = uninstall_config();
+        assert!(result.is_ok());
+        assert!(!config_dir2.exists(), "uninstall_config should remove existing dir");
+
+        unsafe { std::env::remove_var("VIBERAILS_CONFIG_DIR") };
+    }
+
+    #[test]
+    fn test_uninstall_data_dir_no_create_and_remove() {
+        let _lock = crate::common::ENV_TEST_MUTEX.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+
+        // Sub-test 1: uninstall_data_dir does NOT create the dir when absent
+        let data_dir = dir.path().join("data_absent").join("viberails");
+
+        // SAFETY: env mutation serialized by ENV_TEST_MUTEX
+        unsafe { std::env::set_var("VIBERAILS_DATA_DIR", data_dir.as_os_str()) };
+
+        assert!(!data_dir.exists());
+        let result = uninstall_data_dir();
+        assert!(result.is_ok());
+        assert!(!data_dir.exists(), "uninstall_data_dir must NOT create dir");
+
+        // Sub-test 2: uninstall_data_dir removes an existing dir
+        let data_dir2 = dir.path().join("data_present").join("viberails");
+        fs::create_dir_all(&data_dir2).unwrap();
+        fs::write(data_dir2.join("debug.log"), "log data").unwrap();
+
+        unsafe { std::env::set_var("VIBERAILS_DATA_DIR", data_dir2.as_os_str()) };
+
+        let result = uninstall_data_dir();
+        assert!(result.is_ok());
+        assert!(!data_dir2.exists(), "uninstall_data_dir should remove existing dir");
+
+        unsafe { std::env::remove_var("VIBERAILS_DATA_DIR") };
+    }
+
+    // -------------------------------------------------------------------------
+    // check_hook_results tests
+    //
+    // Validates that the extracted helper correctly detects:
+    // - all-success results
+    // - empty provider results (provider creation failure)
+    // - individual hook removal errors
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_check_hook_results_all_success() {
+        let results = vec![
+            InstallResult {
+                provider_name: "Claude Code".to_string(),
+                hooktype: "pre-tool-use",
+                result: Ok(()),
+            },
+            InstallResult {
+                provider_name: "Claude Code".to_string(),
+                hooktype: "post-tool-use",
+                result: Ok(()),
+            },
+        ];
+
+        let per_provider = vec![("claude-code", results.as_slice())];
+        assert!(check_hook_results(&per_provider));
+    }
+
+    #[test]
+    fn test_check_hook_results_empty_results_flags_failure() {
+        // Empty results means provider creation failed silently
+        let empty: Vec<InstallResult> = vec![];
+        let per_provider = vec![("broken-provider", empty.as_slice())];
+        assert!(!check_hook_results(&per_provider));
+    }
+
+    #[test]
+    fn test_check_hook_results_individual_error_flags_failure() {
+        let results = vec![
+            InstallResult {
+                provider_name: "Cursor".to_string(),
+                hooktype: "rules",
+                result: Ok(()),
+            },
+            InstallResult {
+                provider_name: "Cursor".to_string(),
+                hooktype: "mdc",
+                result: Err(anyhow!("permission denied")),
+            },
+        ];
+
+        let per_provider = vec![("cursor", results.as_slice())];
+        assert!(!check_hook_results(&per_provider));
+    }
+
+    #[test]
+    fn test_check_hook_results_mixed_providers() {
+        // One provider succeeds, another has empty results (failure)
+        let good_results = vec![InstallResult {
+            provider_name: "Claude Code".to_string(),
+            hooktype: "pre-tool-use",
+            result: Ok(()),
+        }];
+
+        let empty: Vec<InstallResult> = vec![];
+
+        let per_provider = vec![
+            ("claude-code", good_results.as_slice()),
+            ("broken-provider", empty.as_slice()),
+        ];
+        assert!(!check_hook_results(&per_provider));
+    }
+
+    #[test]
+    fn test_check_hook_results_no_providers_is_success() {
+        // No providers at all — nothing failed
+        let per_provider: Vec<(&str, &[InstallResult])> = vec![];
+        assert!(check_hook_results(&per_provider));
+    }
+
+    #[test]
+    fn test_check_hook_results_multiple_providers_all_success() {
+        let claude_results = vec![
+            InstallResult {
+                provider_name: "Claude Code".to_string(),
+                hooktype: "pre-tool-use",
+                result: Ok(()),
+            },
+        ];
+
+        let cursor_results = vec![
+            InstallResult {
+                provider_name: "Cursor".to_string(),
+                hooktype: "rules",
+                result: Ok(()),
+            },
+            InstallResult {
+                provider_name: "Cursor".to_string(),
+                hooktype: "mdc",
+                result: Ok(()),
+            },
+        ];
+
+        let per_provider = vec![
+            ("claude-code", claude_results.as_slice()),
+            ("cursor", cursor_results.as_slice()),
+        ];
+        assert!(check_hook_results(&per_provider));
     }
 }
