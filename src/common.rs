@@ -72,18 +72,47 @@ pub fn project_data_dir() -> Result<PathBuf> {
     Ok(project_data_dir)
 }
 
+/// Environment variable to override the config directory.
+///
+/// Opt-in escape hatch for testing and CI environments where platform
+/// config APIs (e.g. Windows `SHGetKnownFolderPath`) ignore env var
+/// overrides. In production, leave this unset to use the secure default.
+///
+/// Example usage in tests:
+///   export VIBERAILS_CONFIG_DIR="/tmp/test-config/viberails"
+const ENV_CONFIG_DIR_OVERRIDE: &str = "VIBERAILS_CONFIG_DIR";
+
 /// Returns the project config directory, creating it with secure permissions if needed.
+///
+/// If `VIBERAILS_CONFIG_DIR` is set, uses that path directly (validated for
+/// safety). Otherwise falls back to `dirs::config_dir()/viberails`.
 ///
 /// On Unix, creates the directory with mode 0700 (owner only) to protect
 /// sensitive config files like credentials and API keys.
 ///
 /// Parameters: None
 ///
-/// Returns: Path to `~/.config/viberails` (or equivalent)
+/// Returns: Path to `~/.config/viberails` (or platform equivalent)
 pub fn project_config_dir() -> Result<PathBuf> {
-    let data_dir = dirs::config_dir().ok_or_else(|| anyhow!("Unable to determine config directory. Ensure XDG_CONFIG_HOME or HOME environment variable is set"))?;
+    let project_config_dir = if let Ok(override_dir) = env::var(ENV_CONFIG_DIR_OVERRIDE) {
+        let path = PathBuf::from(&override_dir);
 
-    let project_config_dir = data_dir.join(PROJECT_NAME);
+        if !path.is_absolute() {
+            bail!("{ENV_CONFIG_DIR_OVERRIDE} must be an absolute path: {override_dir}");
+        }
+        // Reject path traversal
+        for component in path.components() {
+            if let std::path::Component::ParentDir = component {
+                bail!("{ENV_CONFIG_DIR_OVERRIDE} contains parent directory references: {override_dir}");
+            }
+        }
+
+        info!("Using config directory override from {ENV_CONFIG_DIR_OVERRIDE}: {}", path.display());
+        path
+    } else {
+        let data_dir = dirs::config_dir().ok_or_else(|| anyhow!("Unable to determine config directory. Ensure XDG_CONFIG_HOME or HOME environment variable is set"))?;
+        data_dir.join(PROJECT_NAME)
+    };
 
     // Create directory with secure permissions (0700 on Unix)
     create_secure_directory(&project_config_dir)?;
