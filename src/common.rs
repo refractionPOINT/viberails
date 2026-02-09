@@ -53,34 +53,79 @@ pub fn display_authorize_help() {
     println!();
 }
 
+/// Environment variable to override the config directory.
+///
+/// Opt-in escape hatch for testing and CI environments where platform
+/// config APIs (e.g. Windows `SHGetKnownFolderPath`, macOS native dirs)
+/// ignore env var overrides like `XDG_CONFIG_HOME`.
+/// In production, leave this unset to use the secure default.
+///
+/// Example usage in tests:
+///   export VIBERAILS_CONFIG_DIR="/tmp/test-config/viberails"
+const ENV_CONFIG_DIR_OVERRIDE: &str = "VIBERAILS_CONFIG_DIR";
+
+/// Environment variable to override the data directory.
+///
+/// Same rationale as `VIBERAILS_CONFIG_DIR` — platform data dir APIs
+/// on macOS and Windows ignore `XDG_DATA_HOME`.
+///
+/// Example usage in tests:
+///   export VIBERAILS_DATA_DIR="/tmp/test-data/viberails"
+const ENV_DATA_DIR_OVERRIDE: &str = "VIBERAILS_DATA_DIR";
+
+/// Validate an override path from an environment variable.
+///
+/// Ensures the path is absolute and contains no parent directory
+/// references (path traversal prevention).
+///
+/// Parameters:
+///   - `env_name`: Name of the environment variable (for error messages)
+///   - `value`: The path string from the environment variable
+///
+/// Returns: Validated `PathBuf` on success, Err on invalid path
+fn validate_dir_override(env_name: &str, value: &str) -> Result<PathBuf> {
+    let path = PathBuf::from(value);
+
+    if !path.is_absolute() {
+        bail!("{env_name} must be an absolute path: {value}");
+    }
+
+    // Reject path traversal
+    for component in path.components() {
+        if let std::path::Component::ParentDir = component {
+            bail!("{env_name} contains parent directory references: {value}");
+        }
+    }
+
+    Ok(path)
+}
+
 /// Returns the project data directory, creating it with secure permissions if needed.
+///
+/// If `VIBERAILS_DATA_DIR` is set, uses that path directly (validated for
+/// safety). Otherwise falls back to `dirs::data_dir()/viberails`.
 ///
 /// On Unix, creates the directory with mode 0700 (owner only) to protect
 /// sensitive files like logs and cached data.
 ///
 /// Parameters: None
 ///
-/// Returns: Path to `~/.local/share/viberails` (or equivalent)
+/// Returns: Path to `~/.local/share/viberails` (or platform equivalent)
 pub fn project_data_dir() -> Result<PathBuf> {
-    let data_dir = dirs::data_dir().ok_or_else(|| anyhow!("Unable to determine data directory. Ensure XDG_DATA_HOME or HOME environment variable is set"))?;
-
-    let project_data_dir = data_dir.join(PROJECT_NAME);
+    let project_data_dir = if let Ok(override_dir) = env::var(ENV_DATA_DIR_OVERRIDE) {
+        let path = validate_dir_override(ENV_DATA_DIR_OVERRIDE, &override_dir)?;
+        info!("Using data directory override from {ENV_DATA_DIR_OVERRIDE}: {}", path.display());
+        path
+    } else {
+        let data_dir = dirs::data_dir().ok_or_else(|| anyhow!("Unable to determine data directory. Ensure XDG_DATA_HOME or HOME environment variable is set"))?;
+        data_dir.join(PROJECT_NAME)
+    };
 
     // Create directory with secure permissions (0700 on Unix)
     create_secure_directory(&project_data_dir)?;
 
     Ok(project_data_dir)
 }
-
-/// Environment variable to override the config directory.
-///
-/// Opt-in escape hatch for testing and CI environments where platform
-/// config APIs (e.g. Windows `SHGetKnownFolderPath`) ignore env var
-/// overrides. In production, leave this unset to use the secure default.
-///
-/// Example usage in tests:
-///   export VIBERAILS_CONFIG_DIR="/tmp/test-config/viberails"
-const ENV_CONFIG_DIR_OVERRIDE: &str = "VIBERAILS_CONFIG_DIR";
 
 /// Returns the project config directory, creating it with secure permissions if needed.
 ///
@@ -95,23 +140,12 @@ const ENV_CONFIG_DIR_OVERRIDE: &str = "VIBERAILS_CONFIG_DIR";
 /// Returns: Path to `~/.config/viberails` (or platform equivalent)
 pub fn project_config_dir() -> Result<PathBuf> {
     let project_config_dir = if let Ok(override_dir) = env::var(ENV_CONFIG_DIR_OVERRIDE) {
-        let path = PathBuf::from(&override_dir);
-
-        if !path.is_absolute() {
-            bail!("{ENV_CONFIG_DIR_OVERRIDE} must be an absolute path: {override_dir}");
-        }
-        // Reject path traversal
-        for component in path.components() {
-            if let std::path::Component::ParentDir = component {
-                bail!("{ENV_CONFIG_DIR_OVERRIDE} contains parent directory references: {override_dir}");
-            }
-        }
-
+        let path = validate_dir_override(ENV_CONFIG_DIR_OVERRIDE, &override_dir)?;
         info!("Using config directory override from {ENV_CONFIG_DIR_OVERRIDE}: {}", path.display());
         path
     } else {
-        let data_dir = dirs::config_dir().ok_or_else(|| anyhow!("Unable to determine config directory. Ensure XDG_CONFIG_HOME or HOME environment variable is set"))?;
-        data_dir.join(PROJECT_NAME)
+        let config_dir = dirs::config_dir().ok_or_else(|| anyhow!("Unable to determine config directory. Ensure XDG_CONFIG_HOME or HOME environment variable is set"))?;
+        config_dir.join(PROJECT_NAME)
     };
 
     // Create directory with secure permissions (0700 on Unix)

@@ -130,17 +130,18 @@ setup_test() {
     export XDG_CONFIG_HOME="${TEST_TMPDIR}/config"
     export XDG_DATA_HOME="${TEST_TMPDIR}/data"
 
-    # Override config directory for test isolation. Uses the same env var
-    # the binary respects, so it works on all platforms regardless of how
-    # dirs::config_dir() resolves (XDG on Linux, ~/Library on macOS,
-    # FOLDERID_RoamingAppData on Windows).
-    export VIBERAILS_CONFIG_DIR="${TEST_TMPDIR}/config/viberails"
-
-    # Override binary installation directory for test isolation
-    # This ensures upgrade/install operations don't touch the real ~/.local/bin
+    # Override directories for test isolation.
+    # VIBERAILS_*_DIR env vars ensure isolation on all platforms —
+    # macOS and Windows ignore XDG_CONFIG_HOME/XDG_DATA_HOME in their
+    # native directory APIs (dirs::config_dir(), dirs::data_dir()).
     export VIBERAILS_BIN_DIR="${HOME}/.local/bin"
+    export VIBERAILS_CONFIG_DIR="${XDG_CONFIG_HOME}/viberails"
+    export VIBERAILS_DATA_DIR="${XDG_DATA_HOME}/viberails"
 
-    mkdir -p "$HOME" "$VIBERAILS_CONFIG_DIR" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$VIBERAILS_BIN_DIR"
+    # Only create parent directories — not the viberails-specific dirs themselves.
+    # The binary creates config/data dirs on demand via create_secure_directory().
+    # Tests that need them pre-created will set them up explicitly.
+    mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$VIBERAILS_BIN_DIR"
 
     # Set binary name and path (handle Windows .exe extension)
     VIBERAILS_EXE_NAME="$(get_exe_name)"
