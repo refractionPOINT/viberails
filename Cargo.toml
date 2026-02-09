@@ -16,6 +16,7 @@ fs2 = "0.4"
 rand = "0.9"
 hostname = "0.4"
 libc = "0.2"
+sysinfo = { version = "0.38", default-features = false, features = ["system"] }
 log = "0.4"
 minreq = { version = "2.14", features = [
   "https-rustls-probe",
@@ -38,7 +39,7 @@ uuid = { version = "1.20", features = ["v4"] }
 whoami = "2.1"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_System_Threading", "Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp"] }
+windows-sys = { version = "0.59", features = ["Win32_System_Threading", "Win32_Foundation", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 tempfile = "3.24"
