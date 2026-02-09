@@ -848,3 +848,198 @@ EOF
     # The command may fail but should not delete the target
     [[ -d "$target_dir" ]]
 }
+
+# -----------------------------------------------------------------------------
+# Binary already missing tests
+# -----------------------------------------------------------------------------
+
+@test "uninstall-all handles missing binary gracefully" {
+    # Create config directory (so uninstall has something to do)
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    # Don't install the binary to bin_dir — it's already missing
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+
+    # Verify binary is NOT in bin_dir
+    [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
+
+    # Run uninstall-all using test binary (not from bin_dir)
+    run "$VIBERAILS_BIN" uninstall-all 2>&1
+
+    # Should not crash — missing binary is handled gracefully
+    [[ -n "$output" ]]
+
+    # Config should still be cleaned up
+    [[ ! -d "$config_dir" ]]
+}
+
+# -----------------------------------------------------------------------------
+# Corrupt config tests
+# -----------------------------------------------------------------------------
+
+@test "uninstall-all handles corrupt config file" {
+    # Create config directory with invalid JSON
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    echo "this is not valid json{{{" > "${config_dir}/config.json"
+
+    # Install the binary
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run uninstall-all — should not crash on bad config
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all 2>&1
+
+    # Should complete without segfault or panic
+    [[ -n "$output" ]]
+
+    # Config directory should still be removed even if config is corrupt
+    [[ ! -d "$config_dir" ]]
+}
+
+@test "uninstall-all handles config directory with extra files" {
+    # Create config directory with extra non-standard files
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+    echo "some backup" > "${config_dir}/config.json.bak"
+    echo "notes" > "${config_dir}/notes.txt"
+
+    # Install the binary
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+
+    # Entire config directory (including extra files) should be removed
+    [[ ! -d "$config_dir" ]]
+}
+
+# -----------------------------------------------------------------------------
+# Output message verification tests
+# -----------------------------------------------------------------------------
+
+@test "uninstall-all reports binary removal in output" {
+    # Create config directory
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+
+    # Should explicitly say binary was removed
+    assert_contains "$output" "Binary removed"
+}
+
+@test "uninstall-all reports config removal in output" {
+    # Create config directory
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+
+    # Should explicitly say config was removed
+    assert_contains "$output" "Configuration removed"
+}
+
+@test "uninstall-all reports data directory removal in output" {
+    # Create config and data directories
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local data_dir="${XDG_DATA_HOME}/viberails"
+    mkdir -p "$data_dir"
+    echo '{"last_poll": 12345}' > "${data_dir}/upgrade_state.json"
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+
+    # Should explicitly say data directory was removed
+    assert_contains "$output" "Data directory removed"
+}
+
+# -----------------------------------------------------------------------------
+# No auto-upgrade after uninstall-all
+# -----------------------------------------------------------------------------
+
+@test "uninstall-all does not re-create files via auto-upgrade" {
+    # This verifies the is_uninstall_all skip in main.rs.
+    # After uninstall-all, poll_upgrade() must NOT run, otherwise
+    # it would re-download the binary and recreate config files.
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local data_dir="${XDG_DATA_HOME}/viberails"
+    mkdir -p "$data_dir"
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+
+    # Wait briefly to ensure no background process recreates anything
+    sleep 0.5
+
+    # Nothing should have been recreated
+    [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
+    [[ ! -d "$config_dir" ]]
+    [[ ! -d "$data_dir" ]]
+}

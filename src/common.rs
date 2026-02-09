@@ -326,6 +326,103 @@ mod tests {
             mode
         );
     }
+
+    // -------------------------------------------------------------------------
+    // validate_dir_override tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_validate_dir_override_accepts_absolute_path() {
+        let result = validate_dir_override("TEST_VAR", "/tmp/viberails/test");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), PathBuf::from("/tmp/viberails/test"));
+    }
+
+    #[test]
+    fn test_validate_dir_override_rejects_relative_path() {
+        let result = validate_dir_override("TEST_VAR", "relative/path");
+        assert!(result.is_err());
+
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("must be an absolute path"),
+            "Error should mention absolute path requirement: {err}"
+        );
+    }
+
+    #[test]
+    fn test_validate_dir_override_rejects_dot_relative_path() {
+        let result = validate_dir_override("TEST_VAR", "./config/viberails");
+        assert!(result.is_err());
+
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("must be an absolute path"),
+            "Error should mention absolute path requirement: {err}"
+        );
+    }
+
+    #[test]
+    fn test_validate_dir_override_rejects_path_traversal() {
+        // Path with .. in the middle
+        let result = validate_dir_override("TEST_VAR", "/tmp/../etc/shadow");
+        assert!(result.is_err());
+
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("parent directory references"),
+            "Error should mention parent directory references: {err}"
+        );
+    }
+
+    #[test]
+    fn test_validate_dir_override_rejects_trailing_path_traversal() {
+        let result = validate_dir_override("TEST_VAR", "/tmp/viberails/..");
+        assert!(result.is_err());
+
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("parent directory references"),
+            "Error should mention parent directory references: {err}"
+        );
+    }
+
+    #[test]
+    fn test_validate_dir_override_includes_env_name_in_error() {
+        // Verify the env var name appears in error messages for debugging
+        let result = validate_dir_override("VIBERAILS_CONFIG_DIR", "relative");
+        assert!(result.is_err());
+
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("VIBERAILS_CONFIG_DIR"),
+            "Error should include env var name: {err}"
+        );
+    }
+
+    #[test]
+    fn test_validate_dir_override_accepts_deeply_nested_path() {
+        let result = validate_dir_override("TEST_VAR", "/a/b/c/d/e/f/viberails");
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            PathBuf::from("/a/b/c/d/e/f/viberails")
+        );
+    }
+
+    #[test]
+    fn test_validate_dir_override_accepts_root_path() {
+        // Edge case: root path is technically a valid absolute path
+        let result = validate_dir_override("TEST_VAR", "/");
+        assert!(result.is_ok());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_validate_dir_override_accepts_windows_absolute_path() {
+        let result = validate_dir_override("TEST_VAR", "C:\\Users\\test\\viberails");
+        assert!(result.is_ok());
+    }
 }
 
 /// Returns the validated home directory for the current user.

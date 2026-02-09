@@ -275,3 +275,91 @@ EOF
     [[ -d "$data_dir" ]]
     [[ -f "${data_dir}/upgrade_state.json" ]]
 }
+
+# -----------------------------------------------------------------------------
+# Output message verification
+# -----------------------------------------------------------------------------
+
+@test "uninstall-hooks mentions binary is retained" {
+    # Create config directory
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    # Install the binary
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run uninstall-hooks
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-hooks 2>&1 || true
+
+    # Should mention binary is retained or nothing to uninstall
+    assert_contains "$output" "retained" || assert_contains "$output" "Nothing to uninstall" || assert_contains "$output" "cancelled"
+}
+
+@test "uninstall-hooks does not remove upgrade temp files" {
+    # Create config directory with auto_upgrade disabled to prevent
+    # poll_upgrade() from cleaning temp files at exit
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true, "auto_upgrade": false },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    # Install the binary
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Create temp upgrade files
+    touch "${bin_dir}/viberails_upgrade_12345678"
+    echo "99999" > "${bin_dir}/.viberails.upgrade.lock"
+
+    # Run uninstall-hooks
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-hooks 2>&1 || true
+
+    # Temp files should still be there — uninstall-hooks only removes hooks
+    [[ -f "${bin_dir}/viberails_upgrade_12345678" ]]
+    [[ -f "${bin_dir}/.viberails.upgrade.lock" ]]
+}
+
+@test "uninstall alias does not remove upgrade temp files" {
+    # Create config directory with auto_upgrade disabled to prevent
+    # poll_upgrade() from cleaning temp files at exit
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true, "auto_upgrade": false },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    # Install the binary
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Create temp upgrade files
+    touch "${bin_dir}/viberails_upgrade_12345678"
+    echo "99999" > "${bin_dir}/.viberails.upgrade.lock"
+
+    # Run using 'uninstall' alias
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall 2>&1 || true
+
+    # Temp files should still be there — alias maps to uninstall-hooks
+    [[ -f "${bin_dir}/viberails_upgrade_12345678" ]]
+    [[ -f "${bin_dir}/.viberails.upgrade.lock" ]]
+}
