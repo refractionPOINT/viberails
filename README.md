@@ -186,19 +186,19 @@ When disabled, you can still manually upgrade with `viberails upgrade`.
 
 ## Commands Reference
 
-| Command                     | Alias         | Description                            |
-| --------------------------- | ------------- | -------------------------------------- |
-| `init-team`                 | `init`        | Create a new team via OAuth            |
-| `join-team <URL>`           | `join`        | Join an existing team                  |
-| `install`                   |               | Install hooks for detected AI tools    |
+| Command                     | Alias         | Description                                    |
+| --------------------------- | ------------- | ---------------------------------------------- |
+| `init-team`                 | `init`        | Create a new team via OAuth                    |
+| `join-team <URL>`           | `join`        | Join an existing team                          |
+| `install`                   |               | Install hooks for detected AI tools            |
 | `install --providers <ids>` |               | Non-interactive install for specific providers |
-| `uninstall`                 |               | Remove hooks and optionally the binary |
-| `uninstall --providers <ids>` |             | Non-interactive uninstall for specific providers |
-| `list`                      | `ls`          | Show installed hooks                   |
-| `show-config`               |               | Display current configuration          |
-| `upgrade`                   |               | Update to the latest version           |
-| `debug`                     |               | Enable/disable debug logging           |
-| `debug-clean`               | `clean-debug` | Remove accumulated debug logs          |
+| `uninstall-hooks`           | `uninstall`   | Remove hooks (keeps binary and config)         |
+| `uninstall-all`             |               | Full cleanup: hooks, binary, config, data      |
+| `list`                      | `ls`          | Show installed hooks                           |
+| `show-config`               |               | Display current configuration                  |
+| `upgrade`                   |               | Update to the latest version                   |
+| `debug`                     |               | Enable/disable debug logging                   |
+| `debug-clean`               | `clean-debug` | Remove accumulated debug logs                  |
 
 Run `viberails --help` for detailed usage information.
 

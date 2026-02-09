@@ -44,8 +44,7 @@ All notable changes to viberails will be documented in this file.
 ### Changed
 
 - TUI menu now shows "Remove Hooks" (shortcut `u`) for hook removal
-- TUI menu shows "Uninstall Everything" (shortcut `e`) for complete cleanup
-- Removed redundant "Uninstall" menu option (shortcut `f`)
+- Replaced "Uninstall" menu option (shortcut `f`) with "Uninstall Everything" (shortcut `e`) for complete cleanup
 
 ### Related
 

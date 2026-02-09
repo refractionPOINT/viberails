@@ -315,6 +315,10 @@ fn main() -> Result<()> {
         )
     );
 
+    // Skip auto-upgrade after full uninstall - it would re-download the binary
+    // and recreate config files we just removed
+    let is_uninstall_all = matches!(args.command, Some(Command::UninstallAll));
+
     if is_callback {
         init_callback_logging()?;
     } else {
@@ -383,8 +387,10 @@ fn main() -> Result<()> {
     // This'll try to upgrade every x hours on exit (if enabled).
     // Skip for hook callbacks - they must exit quickly to avoid blocking
     // the AI tool (e.g., Claude Code waits for the hook process to exit).
+    // Skip after uninstall-all - would undo the cleanup by re-downloading the binary.
     //
     if !is_callback
+        && !is_uninstall_all
         && is_auto_upgrade_enabled()
         && let Err(e) = poll_upgrade()
     {

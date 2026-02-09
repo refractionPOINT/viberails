@@ -186,6 +186,92 @@ EOF
     # Run uninstall-hooks
     run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-hooks 2>&1 || true
 
-    # Should indicate binary is retained
-    assert_contains "$output" "retained" || assert_contains "$output" "No providers"
+    # Should indicate nothing to uninstall (no providers detected in test env)
+    # or that the binary is retained (when providers exist)
+    assert_contains "$output" "retained" || assert_contains "$output" "Nothing to uninstall"
+}
+
+# -----------------------------------------------------------------------------
+# Backward compatibility - 'uninstall' alias behavioral tests
+# These verify the alias runs uninstall-hooks behavior (preserves binary/config)
+# rather than uninstall-all behavior.
+# -----------------------------------------------------------------------------
+
+@test "uninstall alias preserves binary (same as uninstall-hooks)" {
+    # Create config directory
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    # Install the binary
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run using 'uninstall' alias (not 'uninstall-hooks' or 'uninstall-all')
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall 2>&1 || true
+
+    # Binary should still be there — alias maps to uninstall-hooks, not uninstall-all
+    [[ -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
+}
+
+@test "uninstall alias preserves config directory (same as uninstall-hooks)" {
+    # Create config directory
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    # Install the binary
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run using 'uninstall' alias
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall 2>&1 || true
+
+    # Config should still be there — alias maps to uninstall-hooks, not uninstall-all
+    [[ -d "$config_dir" ]]
+    [[ -f "${config_dir}/config.json" ]]
+}
+
+@test "uninstall alias preserves data directory (same as uninstall-hooks)" {
+    # Create config directory
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    # Create data directory with files
+    local data_dir="${XDG_DATA_HOME}/viberails"
+    mkdir -p "$data_dir"
+    echo '{"last_poll": 12345}' > "${data_dir}/upgrade_state.json"
+
+    # Install the binary
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run using 'uninstall' alias
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall 2>&1 || true
+
+    # Data directory should still be there
+    [[ -d "$data_dir" ]]
+    [[ -f "${data_dir}/upgrade_state.json" ]]
 }

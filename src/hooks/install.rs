@@ -362,8 +362,8 @@ fn cleanup_upgrade_files(bin_dir: &Path) -> usize {
     let upgrade_prefix = format!("{PROJECT_NAME}_upgrade_");
     let new_binary_prefix = format!(".{PROJECT_NAME}_new_");
 
-    // Remove lock file (using safe removal)
-    if safe_remove_file(&lock_file).is_ok() && !lock_file.exists() {
+    // Remove lock file if it exists (using safe removal)
+    if lock_file.exists() && safe_remove_file(&lock_file).is_ok() {
         cleaned += 1;
     }
 
@@ -458,7 +458,7 @@ pub fn install_binary(dst: &Path) -> Result<()> {
 ///
 /// Parameters:
 ///   - `providers`: Optional comma-separated provider IDs or "all" for non-interactive mode.
-///                  None for interactive TUI selection.
+///     None for interactive TUI selection.
 ///
 /// Returns: `Ok(())` on success, Err on failure
 pub fn install(providers: Option<&str>) -> Result<()> {
@@ -653,5 +653,211 @@ pub fn uninstall_all() -> Result<()> {
         Ok(())
     } else {
         Err(anyhow!("Uninstall had some failures. See logs for details."))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    // -------------------------------------------------------------------------
+    // safe_remove_file tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_safe_remove_file_removes_regular_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.txt");
+        fs::write(&file_path, "content").unwrap();
+
+        assert!(file_path.exists());
+        safe_remove_file(&file_path).unwrap();
+        assert!(!file_path.exists());
+    }
+
+    #[test]
+    fn test_safe_remove_file_handles_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("nonexistent.txt");
+
+        // Should succeed gracefully for missing files
+        assert!(safe_remove_file(&file_path).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_safe_remove_file_refuses_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.txt");
+        let symlink = dir.path().join("symlink.txt");
+
+        fs::write(&target, "precious data").unwrap();
+        std::os::unix::fs::symlink(&target, &symlink).unwrap();
+
+        // Should refuse to remove the symlink
+        let result = safe_remove_file(&symlink);
+        assert!(result.is_err());
+
+        // Target file should still exist
+        assert!(target.exists());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "precious data");
+    }
+
+    // -------------------------------------------------------------------------
+    // safe_remove_dir_all tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_safe_remove_dir_all_removes_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("subdir");
+        fs::create_dir_all(target.join("nested")).unwrap();
+        fs::write(target.join("nested/file.txt"), "data").unwrap();
+
+        let result = safe_remove_dir_all(&target).unwrap();
+        assert!(matches!(result, SafeRemoveResult::Removed));
+        assert!(!target.exists());
+    }
+
+    #[test]
+    fn test_safe_remove_dir_all_handles_missing_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("nonexistent");
+
+        let result = safe_remove_dir_all(&target).unwrap();
+        assert!(matches!(result, SafeRemoveResult::NotFound));
+    }
+
+    #[test]
+    fn test_safe_remove_dir_all_returns_not_found_for_regular_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("not_a_dir.txt");
+        fs::write(&file_path, "content").unwrap();
+
+        // A regular file is not a directory — should return NotFound
+        let result = safe_remove_dir_all(&file_path).unwrap();
+        assert!(matches!(result, SafeRemoveResult::NotFound));
+
+        // File should still exist (we didn't remove it)
+        assert!(file_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_safe_remove_dir_all_refuses_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("real_dir");
+        let symlink = dir.path().join("symlink_dir");
+
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("important.txt"), "precious").unwrap();
+        std::os::unix::fs::symlink(&target, &symlink).unwrap();
+
+        // Should refuse to remove the symlink
+        let result = safe_remove_dir_all(&symlink).unwrap();
+        assert!(matches!(result, SafeRemoveResult::SymlinkRefused));
+
+        // Target directory and contents should still exist
+        assert!(target.exists());
+        assert_eq!(
+            fs::read_to_string(target.join("important.txt")).unwrap(),
+            "precious"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // cleanup_upgrade_files tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_cleanup_upgrade_files_removes_matching_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin_dir = dir.path();
+
+        // Create matching files
+        fs::write(bin_dir.join(".viberails.upgrade.lock"), "123").unwrap();
+        fs::write(bin_dir.join("viberails_upgrade_abc123"), "").unwrap();
+        fs::write(bin_dir.join("viberails_upgrade_def456"), "").unwrap();
+        fs::write(bin_dir.join(".viberails_new_xyz789"), "").unwrap();
+
+        let cleaned = cleanup_upgrade_files(bin_dir);
+
+        assert_eq!(cleaned, 4);
+        assert!(!bin_dir.join(".viberails.upgrade.lock").exists());
+        assert!(!bin_dir.join("viberails_upgrade_abc123").exists());
+        assert!(!bin_dir.join("viberails_upgrade_def456").exists());
+        assert!(!bin_dir.join(".viberails_new_xyz789").exists());
+    }
+
+    #[test]
+    fn test_cleanup_upgrade_files_ignores_unrelated_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin_dir = dir.path();
+
+        // Create unrelated files that should NOT be removed
+        fs::write(bin_dir.join("other_upgrade_abc"), "").unwrap();
+        fs::write(bin_dir.join("viberails_config_backup"), "").unwrap();
+        fs::write(bin_dir.join("random_file.txt"), "").unwrap();
+
+        let cleaned = cleanup_upgrade_files(bin_dir);
+
+        assert_eq!(cleaned, 0);
+        assert!(bin_dir.join("other_upgrade_abc").exists());
+        assert!(bin_dir.join("viberails_config_backup").exists());
+        assert!(bin_dir.join("random_file.txt").exists());
+    }
+
+    #[test]
+    fn test_cleanup_upgrade_files_returns_zero_for_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let cleaned = cleanup_upgrade_files(dir.path());
+        assert_eq!(cleaned, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_cleanup_upgrade_files_skips_symlink_temp_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin_dir = dir.path();
+
+        // Create a target file that should NOT be deleted
+        let target = bin_dir.join("important_binary");
+        fs::write(&target, "precious").unwrap();
+
+        // Create a symlink disguised as a temp upgrade file
+        std::os::unix::fs::symlink(&target, bin_dir.join("viberails_upgrade_malicious")).unwrap();
+
+        let cleaned = cleanup_upgrade_files(bin_dir);
+
+        // Symlink should be skipped, not counted as cleaned
+        assert_eq!(cleaned, 0);
+
+        // Target file should still exist with original content
+        assert!(target.exists());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "precious");
+    }
+
+    #[test]
+    fn test_cleanup_upgrade_files_mixed_matching_and_unrelated() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin_dir = dir.path();
+
+        // Matching files
+        fs::write(bin_dir.join("viberails_upgrade_abc"), "").unwrap();
+        fs::write(bin_dir.join(".viberails.upgrade.lock"), "123").unwrap();
+
+        // Unrelated files
+        fs::write(bin_dir.join("keep_this.txt"), "keep").unwrap();
+        fs::write(bin_dir.join("viberails"), "binary").unwrap();
+
+        let cleaned = cleanup_upgrade_files(bin_dir);
+
+        assert_eq!(cleaned, 2);
+        assert!(!bin_dir.join("viberails_upgrade_abc").exists());
+        assert!(!bin_dir.join(".viberails.upgrade.lock").exists());
+        assert!(bin_dir.join("keep_this.txt").exists());
+        assert!(bin_dir.join("viberails").exists());
     }
 }
