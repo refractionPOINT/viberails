@@ -288,9 +288,82 @@ fn safe_remove_dir_all(path: &Path) -> Result<SafeRemoveResult> {
     Ok(SafeRemoveResult::Removed)
 }
 
+/// Checks whether `path` refers to the currently running executable.
+///
+/// Compares canonicalized paths so that symlinks, relative segments, etc.
+/// are resolved before comparison. Returns `false` for any path that
+/// cannot be resolved (e.g. it doesn't exist).
+///
+/// Parameters:
+///   - `path`: Path to compare against the running binary
+///
+/// Returns: `true` if `path` is the same file as the running process
+fn is_current_executable(path: &Path) -> bool {
+    let Ok(current_exe) = env::current_exe() else {
+        return false;
+    };
+    let Ok(canonical_current) = current_exe.canonicalize() else {
+        return false;
+    };
+    let Ok(canonical_path) = path.canonicalize() else {
+        return false;
+    };
+    canonical_current == canonical_path
+}
+
+/// Removes the installed binary, using `self-replace` when deleting the
+/// currently running executable (required on Windows where a running .exe
+/// cannot be deleted via normal `fs::remove_file`).
+///
+/// Safety checks preserved from `safe_remove_file`:
+///   - Refuses to remove symlinks (prevents symlink-based attacks)
+///   - Gracefully handles already-missing files
+///
+/// Parameters:
+///   - `dst`: Path to the binary to remove
+///
+/// Returns: `Ok(())` on success, Err on failure
 fn uninstall_binary(dst: &Path) -> Result<()> {
     info!("Uninstall location {}", dst.display());
-    safe_remove_file(dst)
+
+    // Check the path itself (not the target) — refuse symlinks for safety
+    match fs::symlink_metadata(dst) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                warn!(
+                    "Refusing to remove symlink at {} - this could be an attack",
+                    dst.display()
+                );
+                bail!(
+                    "Path {} is a symlink. Refusing to remove for safety.",
+                    dst.display()
+                );
+            }
+        }
+        // File already gone — nothing to do
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            warn!("{} doesn't exist", dst.display());
+            return Ok(());
+        }
+        Err(e) => {
+            return Err(e).with_context(|| format!("Unable to stat {}", dst.display()));
+        }
+    }
+
+    if is_current_executable(dst) {
+        // On Windows the running .exe is locked; self_delete_at moves it to a
+        // temp location with FILE_FLAG_DELETE_ON_CLOSE, freeing the original
+        // path immediately. On Unix it's equivalent to unlink().
+        info!("Deleting self (running executable) at {}", dst.display());
+        self_replace::self_delete_at(dst)
+            .with_context(|| format!("Unable to self-delete {}", dst.display()))?;
+    } else {
+        fs::remove_file(dst)
+            .with_context(|| format!("Unable to delete {}", dst.display()))?;
+    }
+
+    info!("{} was deleted", dst.display());
+    Ok(())
 }
 
 fn uninstall_config() -> Result<()> {
@@ -859,5 +932,202 @@ mod tests {
         assert!(!bin_dir.join(".viberails.upgrade.lock").exists());
         assert!(bin_dir.join("keep_this.txt").exists());
         assert!(bin_dir.join("viberails").exists());
+    }
+
+    // -------------------------------------------------------------------------
+    // is_current_executable tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_is_current_executable_with_current_exe() {
+        // The test runner binary is the current executable
+        let current = env::current_exe().unwrap();
+        assert!(is_current_executable(&current));
+    }
+
+    #[test]
+    fn test_is_current_executable_with_different_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let other = dir.path().join("some_other_binary");
+        fs::write(&other, "not the running binary").unwrap();
+
+        assert!(!is_current_executable(&other));
+    }
+
+    #[test]
+    fn test_is_current_executable_with_nonexistent_path() {
+        let path = Path::new("/tmp/definitely_does_not_exist_12345");
+        assert!(!is_current_executable(path));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_is_current_executable_resolves_symlinks() {
+        // Create a symlink pointing at the current test binary
+        let current = env::current_exe().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("symlinked_exe");
+        std::os::unix::fs::symlink(&current, &link).unwrap();
+
+        // canonicalize resolves the symlink, so both should match
+        assert!(is_current_executable(&link));
+    }
+
+    // -------------------------------------------------------------------------
+    // uninstall_binary tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_uninstall_binary_removes_regular_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test_binary");
+        fs::write(&file_path, "binary content").unwrap();
+
+        assert!(file_path.exists());
+        uninstall_binary(&file_path).unwrap();
+        assert!(!file_path.exists());
+    }
+
+    #[test]
+    fn test_uninstall_binary_handles_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("nonexistent_binary");
+
+        // Should succeed gracefully when file doesn't exist
+        assert!(uninstall_binary(&file_path).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_uninstall_binary_refuses_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("real_binary");
+        let symlink = dir.path().join("symlink_binary");
+
+        fs::write(&target, "precious binary").unwrap();
+        std::os::unix::fs::symlink(&target, &symlink).unwrap();
+
+        // Should refuse to remove the symlink
+        let result = uninstall_binary(&symlink);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("symlink"),
+            "Error should mention symlink: {err_msg}"
+        );
+
+        // Target file should be untouched
+        assert!(target.exists());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "precious binary");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_uninstall_binary_refuses_symlink_even_when_target_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let symlink = dir.path().join("dangling_symlink");
+
+        // Create a dangling symlink (target doesn't exist)
+        std::os::unix::fs::symlink("/nonexistent/target", &symlink).unwrap();
+
+        // symlink_metadata sees the symlink itself, so this should be refused
+        let result = uninstall_binary(&symlink);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("symlink"),
+            "Error should mention symlink: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_uninstall_binary_removes_readonly_file() {
+        // On Unix, removing a file only requires write permission on the
+        // parent directory, not the file itself. This verifies that
+        // read-only binaries are still removed properly.
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("readonly_binary");
+        fs::write(&file_path, "binary").unwrap();
+
+        // Make the file read-only
+        let mut perms = fs::metadata(&file_path).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&file_path, perms).unwrap();
+
+        // Should still succeed (parent dir is writable)
+        uninstall_binary(&file_path).unwrap();
+        assert!(!file_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_uninstall_binary_refuses_symlink_chain() {
+        // Symlink chain: link_a -> link_b -> real_file
+        // Should be refused because the top-level path IS a symlink.
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("real_binary");
+        let link_b = dir.path().join("link_b");
+        let link_a = dir.path().join("link_a");
+
+        fs::write(&target, "precious data").unwrap();
+        std::os::unix::fs::symlink(&target, &link_b).unwrap();
+        std::os::unix::fs::symlink(&link_b, &link_a).unwrap();
+
+        let result = uninstall_binary(&link_a);
+        assert!(result.is_err());
+
+        // Entire chain and target must be untouched
+        assert!(target.exists());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "precious data");
+    }
+
+    #[test]
+    fn test_uninstall_binary_with_path_containing_spaces() {
+        // Verify paths with spaces don't cause issues
+        let dir = tempfile::tempdir().unwrap();
+        let subdir = dir.path().join("path with spaces");
+        fs::create_dir_all(&subdir).unwrap();
+        let file_path = subdir.join("my binary");
+        fs::write(&file_path, "content").unwrap();
+
+        uninstall_binary(&file_path).unwrap();
+        assert!(!file_path.exists());
+    }
+
+    #[test]
+    fn test_uninstall_binary_with_unicode_path() {
+        // Verify unicode paths work correctly
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("binário_日本語");
+        fs::write(&file_path, "content").unwrap();
+
+        uninstall_binary(&file_path).unwrap();
+        assert!(!file_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_is_current_executable_with_symlink_chain() {
+        // Symlink chain: link_a -> link_b -> current_exe
+        // canonicalize resolves the full chain, so should still match.
+        let current = env::current_exe().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let link_b = dir.path().join("link_b");
+        let link_a = dir.path().join("link_a");
+
+        std::os::unix::fs::symlink(&current, &link_b).unwrap();
+        std::os::unix::fs::symlink(&link_b, &link_a).unwrap();
+
+        assert!(is_current_executable(&link_a));
+    }
+
+    #[test]
+    fn test_is_current_executable_with_empty_file() {
+        // A zero-byte file is clearly not the running binary
+        let dir = tempfile::tempdir().unwrap();
+        let empty = dir.path().join("empty");
+        fs::write(&empty, "").unwrap();
+
+        assert!(!is_current_executable(&empty));
     }
 }

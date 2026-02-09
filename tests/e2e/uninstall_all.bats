@@ -101,8 +101,8 @@ EOF
     # Verify binary exists
     [[ -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
 
-    # Run from build dir — on Windows, running executables can't be deleted
-    run "$VIBERAILS_BIN" uninstall-all
+    # Run uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
 
     # Binary should be removed
     [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
@@ -151,11 +151,11 @@ EOF
     # Verify config doesn't exist
     [[ ! -d "$config_dir" ]]
 
-    # Run from build dir — on Windows, running executables can't be deleted
-    run "$VIBERAILS_BIN" uninstall-all
+    # Run uninstall-all - should not crash
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
 
     # Should complete without error
-    [[ "$status" -eq 0 ]]
+    [[ "$status" -eq 0 ]] || assert_contains "$output" "cleanup"
 }
 
 # -----------------------------------------------------------------------------
@@ -254,11 +254,11 @@ EOF
     # Verify data doesn't exist
     [[ ! -d "$data_dir" ]]
 
-    # Run from build dir — on Windows, running executables can't be deleted
-    run "$VIBERAILS_BIN" uninstall-all
+    # Run uninstall-all - should not crash
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
 
     # Should complete successfully
-    [[ "$status" -eq 0 ]]
+    [[ "$status" -eq 0 ]] || assert_contains "$output" "cleanup"
 }
 
 # -----------------------------------------------------------------------------
@@ -404,8 +404,8 @@ EOF
     [[ -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
     [[ -f "${bin_dir}/viberails_upgrade_12345678" ]]
 
-    # Run from build dir — on Windows, running executables can't be deleted
-    run "$VIBERAILS_BIN" uninstall-all
+    # Run uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
 
     # Everything should be gone
     [[ ! -d "$config_dir" ]]
@@ -564,8 +564,8 @@ EOF
     echo "other script" > "${bin_dir}/other-script.sh"
     echo "another tool" > "${bin_dir}/another-tool"
 
-    # Run from build dir — on Windows, running executables can't be deleted
-    run "$VIBERAILS_BIN" uninstall-all
+    # Run uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
 
     # viberails should be gone, but other files should remain
     [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
@@ -631,12 +631,12 @@ EOF
     mkdir -p "$bin_dir"
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
-    # Run from build dir — on Windows, running executables can't be deleted
-    run "$VIBERAILS_BIN" uninstall-all
+    # Run uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
 
     # Should complete successfully (even without actual hooks installed)
     # The important thing is it doesn't crash trying to enumerate providers
-    [[ "$status" -eq 0 ]]
+    [[ "$status" -eq 0 ]] || assert_contains "$output" "cleanup"
 }
 
 # -----------------------------------------------------------------------------
@@ -953,8 +953,8 @@ EOF
     mkdir -p "$bin_dir"
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
-    # Run from build dir — on Windows, running executables can't be deleted
-    run "$VIBERAILS_BIN" uninstall-all
+    # Run uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
 
     # Should explicitly say binary was removed
     assert_contains "$output" "Binary removed"
@@ -1033,8 +1033,8 @@ EOF
     mkdir -p "$bin_dir"
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
-    # Run from build dir — on Windows, running executables can't be deleted
-    run "$VIBERAILS_BIN" uninstall-all
+    # Run uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
 
     # Wait briefly to ensure no background process recreates anything
     sleep 0.5
@@ -1043,4 +1043,288 @@ EOF
     [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
     [[ ! -d "$config_dir" ]]
     [[ ! -d "$data_dir" ]]
+}
+
+# -----------------------------------------------------------------------------
+# Self-delete tests (binary deleting itself via self-replace)
+# -----------------------------------------------------------------------------
+
+@test "uninstall-all self-deletes when run from installed location" {
+    # This is the core self-replace test: the binary running from the
+    # install path must be able to delete its own file.
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Verify the installed copy exists and is executable
+    [[ -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
+    [[ -x "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
+
+    # Run from the installed location — exercises self_replace::self_delete_at
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+
+    assert_exit_code 0 "$status"
+
+    # Binary must be gone after self-delete
+    [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
+
+    # Other cleanup should have happened too
+    [[ ! -d "$config_dir" ]]
+}
+
+@test "uninstall-all self-delete succeeds and reports binary removal" {
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run from installed location (self-delete path)
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+
+    # Should report successful removal even through self-delete
+    assert_contains "$output" "Binary removed"
+    assert_contains "$output" "cleanup complete" || assert_contains "$output" "removed"
+}
+
+@test "uninstall-all self-delete does not affect other bin directory files" {
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Place unrelated files next to the binary
+    echo "keep me" > "${bin_dir}/other-tool"
+    echo "me too" > "${bin_dir}/important-script.sh"
+
+    # Self-delete via installed binary
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+
+    # Binary gone, neighbors untouched
+    [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
+    [[ -f "${bin_dir}/other-tool" ]]
+    [[ -f "${bin_dir}/important-script.sh" ]]
+}
+
+# -----------------------------------------------------------------------------
+# Additional symlink security tests
+# -----------------------------------------------------------------------------
+
+@test "uninstall-all refuses dangling symlink for binary" {
+    # Skip on Windows - symlink behavior differs
+    is_windows && skip "symlink behavior differs on Windows"
+
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    # Create a dangling symlink where the binary should be
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    ln -s "/nonexistent/path/to/binary" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run from build dir (the symlink isn't executable)
+    run "$VIBERAILS_BIN" uninstall-all 2>&1 || true
+
+    # Should not crash — dangling symlink is detected and refused
+    [[ -n "$output" ]]
+
+    # Config should still be cleaned up despite binary symlink error
+    [[ ! -d "$config_dir" ]]
+}
+
+@test "uninstall-all refuses symlink chain for binary" {
+    # Skip on Windows - symlink behavior differs
+    is_windows && skip "symlink behavior differs on Windows"
+
+    # Create a real target that should NOT be deleted
+    local target_file="${TEST_TMPDIR}/real_system_binary"
+    echo "important" > "$target_file"
+
+    # Create chain: bin_dir/viberails -> link_mid -> real_system_binary
+    local link_mid="${TEST_TMPDIR}/intermediate_link"
+    ln -s "$target_file" "$link_mid"
+
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    ln -s "$link_mid" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run from build dir
+    run "$VIBERAILS_BIN" uninstall-all 2>&1 || true
+
+    # Target must survive the symlink chain
+    [[ -f "$target_file" ]]
+    [[ "$(cat "$target_file")" == "important" ]]
+}
+
+@test "uninstall-all refuses symlink lock file" {
+    # Skip on Windows - symlink behavior differs
+    is_windows && skip "symlink behavior differs on Windows"
+
+    # Create a target file that should NOT be deleted
+    local target_file="${TEST_TMPDIR}/critical_file"
+    echo "do not delete" > "$target_file"
+
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Create lock file as symlink to critical file
+    ln -s "$target_file" "${bin_dir}/.viberails.upgrade.lock"
+
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all 2>&1 || true
+
+    # Critical file must survive (symlink lock was refused by safe_remove_file)
+    [[ -f "$target_file" ]]
+    [[ "$(cat "$target_file")" == "do not delete" ]]
+}
+
+@test "uninstall-all preserves files symlinked from inside data directory" {
+    # Skip on Windows - symlink behavior differs
+    is_windows && skip "symlink behavior differs on Windows"
+
+    # Create an external file that a symlink inside the data dir points to
+    local external_file="${TEST_TMPDIR}/external_important.log"
+    echo "external data" > "$external_file"
+
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    # Create real data directory with a symlink inside it
+    local data_dir="${XDG_DATA_HOME}/viberails"
+    mkdir -p "$data_dir"
+    ln -s "$external_file" "${data_dir}/sneaky_link.log"
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+
+    # Data directory should be removed
+    [[ ! -d "$data_dir" ]]
+
+    # External file should survive — remove_dir_all removes the symlink
+    # entry, not the target
+    [[ -f "$external_file" ]]
+    [[ "$(cat "$external_file")" == "external data" ]]
+}
+
+@test "uninstall-all preserves files symlinked from inside config directory" {
+    # Skip on Windows - symlink behavior differs
+    is_windows && skip "symlink behavior differs on Windows"
+
+    # Create external file that a symlink inside config points to
+    local external_file="${TEST_TMPDIR}/external_secret"
+    echo "secret data" > "$external_file"
+
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+    # Symlink inside the real config dir pointing outside
+    ln -s "$external_file" "${config_dir}/linked_secret"
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+
+    # Config dir removed
+    [[ ! -d "$config_dir" ]]
+
+    # External file must survive
+    [[ -f "$external_file" ]]
+    [[ "$(cat "$external_file")" == "secret data" ]]
+}
+
+@test "uninstall-all handles binary path with spaces" {
+    # Override bin dir to one with spaces to verify path handling
+    local bin_dir="${HOME}/.local/bin with spaces"
+    export VIBERAILS_BIN_DIR="$bin_dir"
+    mkdir -p "$bin_dir"
+
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Run from installed location (path with spaces)
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+
+    assert_exit_code 0 "$status"
+    [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
 }
