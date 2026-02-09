@@ -101,8 +101,8 @@ EOF
     # Verify binary exists
     [[ -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
 
-    # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    # Run from build dir — on Windows, running executables can't be deleted
+    run "$VIBERAILS_BIN" uninstall-all
 
     # Binary should be removed
     [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
@@ -151,11 +151,11 @@ EOF
     # Verify config doesn't exist
     [[ ! -d "$config_dir" ]]
 
-    # Run uninstall-all - should not crash
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    # Run from build dir — on Windows, running executables can't be deleted
+    run "$VIBERAILS_BIN" uninstall-all
 
     # Should complete without error
-    [[ "$status" -eq 0 ]] || assert_contains "$output" "cleanup"
+    [[ "$status" -eq 0 ]]
 }
 
 # -----------------------------------------------------------------------------
@@ -254,11 +254,11 @@ EOF
     # Verify data doesn't exist
     [[ ! -d "$data_dir" ]]
 
-    # Run uninstall-all - should not crash
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    # Run from build dir — on Windows, running executables can't be deleted
+    run "$VIBERAILS_BIN" uninstall-all
 
     # Should complete successfully
-    [[ "$status" -eq 0 ]] || assert_contains "$output" "cleanup"
+    [[ "$status" -eq 0 ]]
 }
 
 # -----------------------------------------------------------------------------
@@ -404,8 +404,8 @@ EOF
     [[ -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
     [[ -f "${bin_dir}/viberails_upgrade_12345678" ]]
 
-    # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    # Run from build dir — on Windows, running executables can't be deleted
+    run "$VIBERAILS_BIN" uninstall-all
 
     # Everything should be gone
     [[ ! -d "$config_dir" ]]
@@ -564,8 +564,8 @@ EOF
     echo "other script" > "${bin_dir}/other-script.sh"
     echo "another tool" > "${bin_dir}/another-tool"
 
-    # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    # Run from build dir — on Windows, running executables can't be deleted
+    run "$VIBERAILS_BIN" uninstall-all
 
     # viberails should be gone, but other files should remain
     [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
@@ -631,12 +631,12 @@ EOF
     mkdir -p "$bin_dir"
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
-    # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    # Run from build dir — on Windows, running executables can't be deleted
+    run "$VIBERAILS_BIN" uninstall-all
 
     # Should complete successfully (even without actual hooks installed)
     # The important thing is it doesn't crash trying to enumerate providers
-    [[ "$status" -eq 0 ]] || assert_contains "$output" "cleanup"
+    [[ "$status" -eq 0 ]]
 }
 
 # -----------------------------------------------------------------------------
@@ -953,7 +953,8 @@ EOF
     mkdir -p "$bin_dir"
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    # Run from build dir — on Windows, running executables can't be deleted
+    run "$VIBERAILS_BIN" uninstall-all
 
     # Should explicitly say binary was removed
     assert_contains "$output" "Binary removed"
@@ -1032,8 +1033,8 @@ EOF
     mkdir -p "$bin_dir"
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
-    # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    # Run from build dir — on Windows, running executables can't be deleted
+    run "$VIBERAILS_BIN" uninstall-all
 
     # Wait briefly to ensure no background process recreates anything
     sleep 0.5
