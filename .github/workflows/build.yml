@@ -95,7 +95,7 @@ jobs:
                   toolchain: stable
 
             - name: Cache cargo registry and build
-              uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+              uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
               with:
                   path: |
                       ~/.cargo/registry
@@ -400,12 +400,13 @@ jobs:
                   parent: false
 
             - name: Verify uploaded release.json
+              env:
+                  TAG: ${{ github.ref_name }}
               run: |
                   # Allow time for CDN propagation
                   sleep 5
 
                   BASE_URL="https://get.viberails.io"
-                  TAG="${{ github.ref_name }}"
 
                   echo "=== Verifying latest release.json ==="
                   LATEST_JSON=$(curl -fsSL "${BASE_URL}/release.json")
