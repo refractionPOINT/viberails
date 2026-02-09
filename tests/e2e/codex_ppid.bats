@@ -34,6 +34,7 @@ teardown() {
 
     # Create an authorized config that points to the local mock endpoint.
     # URL includes the secret as the final segment, matching CloudQuery parsing.
+    mkdir -p "$config_dir"
     local config_file="${config_dir}/config.json"
     cat > "$config_file" <<EOF
 {

@@ -333,9 +333,15 @@ mod tests {
 
     #[test]
     fn test_validate_dir_override_accepts_absolute_path() {
-        let result = validate_dir_override("TEST_VAR", "/tmp/viberails/test");
+        // Use platform-appropriate absolute paths
+        #[cfg(unix)]
+        let (input, expected) = ("/tmp/viberails/test", "/tmp/viberails/test");
+        #[cfg(windows)]
+        let (input, expected) = ("C:\\tmp\\viberails\\test", "C:\\tmp\\viberails\\test");
+
+        let result = validate_dir_override("TEST_VAR", input);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), PathBuf::from("/tmp/viberails/test"));
+        assert_eq!(result.unwrap(), PathBuf::from(expected));
     }
 
     #[test]
@@ -364,8 +370,13 @@ mod tests {
 
     #[test]
     fn test_validate_dir_override_rejects_path_traversal() {
-        // Path with .. in the middle
-        let result = validate_dir_override("TEST_VAR", "/tmp/../etc/shadow");
+        // Path with .. in the middle — use platform-appropriate absolute path
+        #[cfg(unix)]
+        let input = "/tmp/../etc/shadow";
+        #[cfg(windows)]
+        let input = "C:\\tmp\\..\\etc\\shadow";
+
+        let result = validate_dir_override("TEST_VAR", input);
         assert!(result.is_err());
 
         let err = result.unwrap_err().to_string();
@@ -377,7 +388,13 @@ mod tests {
 
     #[test]
     fn test_validate_dir_override_rejects_trailing_path_traversal() {
-        let result = validate_dir_override("TEST_VAR", "/tmp/viberails/..");
+        // Trailing .. — use platform-appropriate absolute path
+        #[cfg(unix)]
+        let input = "/tmp/viberails/..";
+        #[cfg(windows)]
+        let input = "C:\\tmp\\viberails\\..";
+
+        let result = validate_dir_override("TEST_VAR", input);
         assert!(result.is_err());
 
         let err = result.unwrap_err().to_string();
@@ -402,18 +419,28 @@ mod tests {
 
     #[test]
     fn test_validate_dir_override_accepts_deeply_nested_path() {
-        let result = validate_dir_override("TEST_VAR", "/a/b/c/d/e/f/viberails");
-        assert!(result.is_ok());
-        assert_eq!(
-            result.unwrap(),
-            PathBuf::from("/a/b/c/d/e/f/viberails")
+        #[cfg(unix)]
+        let (input, expected) = ("/a/b/c/d/e/f/viberails", "/a/b/c/d/e/f/viberails");
+        #[cfg(windows)]
+        let (input, expected) = (
+            "C:\\a\\b\\c\\d\\e\\f\\viberails",
+            "C:\\a\\b\\c\\d\\e\\f\\viberails",
         );
+
+        let result = validate_dir_override("TEST_VAR", input);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), PathBuf::from(expected));
     }
 
     #[test]
     fn test_validate_dir_override_accepts_root_path() {
         // Edge case: root path is technically a valid absolute path
-        let result = validate_dir_override("TEST_VAR", "/");
+        #[cfg(unix)]
+        let input = "/";
+        #[cfg(windows)]
+        let input = "C:\\";
+
+        let result = validate_dir_override("TEST_VAR", input);
         assert!(result.is_ok());
     }
 
