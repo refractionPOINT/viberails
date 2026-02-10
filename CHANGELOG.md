@@ -18,7 +18,9 @@ All notable changes to viberails will be documented in this file.
 ### Added
 
 - New `uninstall-all` CLI command and TUI menu option for complete cleanup
-  - Removes all hooks from all detected providers without prompting
+  - Confirmation prompt before proceeding (CLI: stdin y/N prompt, TUI: select prompt)
+  - `--yes` / `-y` flag to skip confirmation for scripted/CI usage
+  - Removes all hooks from all detected providers
   - Deletes the binary from `~/.local/bin/viberails`
   - Removes config directory (`~/.config/viberails/`)
   - Removes data directory (`~/.local/share/viberails/`) including debug logs and upgrade state
