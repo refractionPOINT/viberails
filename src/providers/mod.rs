@@ -235,17 +235,31 @@ pub trait LLmProviderTrait: Display {
     fn list(&self) -> Result<Vec<HookEntry>>;
 
     fn write_answer(&self, writer: &mut BufWriter<Stdout>, answer: HookAnswer) -> Result<()> {
-        let resp_string =
-            serde_json::to_string(&answer).context("Failed to serialize hook response")?;
+        match answer.decision {
+            HookDecision::Approve => {
+                // Don't write anything to stdout on approve.
+                // Exit 0 with no output means "allow / no opinion" across all providers
+                // (Claude Code, Cursor, Gemini CLI, etc.), which lets the normal
+                // permission system of the AI tool continue operating as before.
+                // Writing {"decision":"approve"} would actively bypass the permission
+                // system (e.g. in Claude Code it maps to permissionDecision:"allow").
+                info!("decision: approve (no output, exit 0)");
+                Ok(())
+            }
+            HookDecision::Block => {
+                let resp_string = serde_json::to_string(&answer)
+                    .context("Failed to serialize hook response")?;
 
-        info!("decision json: {resp_string}");
+                info!("decision json: {resp_string}");
 
-        writer
-            .write_all(resp_string.as_bytes())
-            .context("Failed to write hook response to stdout")?;
-        writer.flush().context("Failed to flush hook response")?;
+                writer
+                    .write_all(resp_string.as_bytes())
+                    .context("Failed to write hook response to stdout")?;
+                writer.flush().context("Failed to flush hook response")?;
 
-        Ok(())
+                Ok(())
+            }
+        }
     }
 
     fn authorize_tool(&self, cloud: &CloudQuery, config: &Config, value: Value) -> HookAnswer {
