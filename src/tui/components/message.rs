@@ -8,6 +8,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
+use super::wrapped_line_count;
 use crate::tui::{TerminalApp, theme::Theme};
 
 /// Style of the message box.
@@ -80,7 +81,12 @@ impl<'a> Message<'a> {
 
     #[allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
     fn render(&self, frame: &mut Frame) {
-        let area = centered_rect(50, 7, frame.area());
+        // Calculate dynamic height: border(2) + help(1) + padding(1) + wrapped content lines,
+        // capped to terminal height so we never overflow the screen.
+        let dialog_inner_width = frame.area().width * 50 / 100;
+        let content_lines = wrapped_line_count(self.content, dialog_inner_width.saturating_sub(2));
+        let dialog_height = (content_lines + 4).min(frame.area().height.saturating_sub(2));
+        let area = centered_rect(50, dialog_height, frame.area());
 
         frame.render_widget(Clear, area);
 

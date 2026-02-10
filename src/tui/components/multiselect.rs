@@ -7,10 +7,10 @@ use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 
-use super::{PromptResult, ValidationResult};
+use super::{PromptResult, ValidationResult, wrapped_line_count};
 use crate::tui::{TerminalApp, theme::Theme};
 
 /// An item in a multi-selection list.
@@ -264,9 +264,23 @@ where
         selected_indices: &HashSet<usize>,
         error_message: Option<&str>,
     ) {
-        // Cap list height to max 15 items visible (plus border + help + error) to ensure scrolling works
+        let help_text = self
+            .help_message
+            .unwrap_or("↑↓ navigate, Space toggle, Enter submit, Esc cancel");
+
+        // Estimate how many rows help/error text need when wrapped to the dialog's inner width.
+        // Dialog is 60% of terminal width, minus 2 for borders.
+        let dialog_inner_width = frame.area().width * 60 / 100;
+        let avail_width = dialog_inner_width.saturating_sub(2);
+        let help_lines = wrapped_line_count(help_text, avail_width);
+        let error_lines = error_message.map_or(1, |e| wrapped_line_count(e, avail_width));
+
+        // Cap list height to max 15 items visible, plus border(2) + help + error + padding(1)
         let max_visible_items: u16 = 15;
-        let list_height = (self.items.len() as u16).min(max_visible_items) + 5; // items + border + help + potential error
+        let list_height = (self.items.len() as u16).min(max_visible_items)
+            + 3
+            + help_lines
+            + error_lines; // items + border(2) + padding(1) + help + error
         let height = list_height.min(frame.area().height.saturating_sub(2));
         let area = centered_rect(60, height, frame.area());
 
@@ -282,8 +296,8 @@ where
 
         let chunks = Layout::vertical([
             Constraint::Min(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
+            Constraint::Length(error_lines),
+            Constraint::Length(help_lines),
         ])
         .split(inner_area);
 
@@ -316,16 +330,19 @@ where
         let list = List::new(list_items).scroll_padding(1);
         frame.render_stateful_widget(list, chunks[0], state);
 
+        // Render error as Paragraph with wrapping so long messages reflow on narrow terminals
         if let Some(err) = error_message {
-            let error_line = Line::from(Span::styled(err, self.theme.error));
-            frame.render_widget(error_line, chunks[1]);
+            let error_para = Paragraph::new(err)
+                .style(self.theme.error)
+                .wrap(Wrap { trim: true });
+            frame.render_widget(error_para, chunks[1]);
         }
 
-        let help_text = self
-            .help_message
-            .unwrap_or("↑↓ navigate, Space toggle, Enter submit, Esc cancel");
-        let help_line = Line::from(Span::styled(help_text, self.theme.help));
-        frame.render_widget(help_line, chunks[2]);
+        // Render help as Paragraph with wrapping so long text reflows on narrow terminals
+        let help = Paragraph::new(help_text)
+            .style(self.theme.help)
+            .wrap(Wrap { trim: true });
+        frame.render_widget(help, chunks[2]);
     }
 }
 

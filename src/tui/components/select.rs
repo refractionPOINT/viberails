@@ -5,10 +5,10 @@ use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 
-use super::PromptResult;
+use super::{PromptResult, wrapped_line_count};
 use crate::tui::{TerminalApp, theme::Theme};
 
 /// An item in a selection list.
@@ -223,9 +223,19 @@ impl<'a, T> Select<'a, T> {
         clippy::cast_possible_truncation
     )]
     fn render(&self, frame: &mut Frame, state: &mut ListState) {
-        // Cap list height to max 15 items visible (plus border + help) to ensure scrolling works
+        let help_text = self
+            .help_message
+            .unwrap_or("↑↓ navigate, Enter select, Esc cancel");
+
+        // Estimate how many rows the help text needs when wrapped to the dialog's inner width.
+        // Dialog is 60% of terminal width, minus 2 for borders.
+        let dialog_inner_width = frame.area().width * 60 / 100;
+        let help_lines = wrapped_line_count(help_text, dialog_inner_width.saturating_sub(2));
+
+        // Cap list height to max 15 items visible, plus border (2) + help lines + padding (1)
         let max_visible_items: u16 = 15;
-        let list_height = (self.items.len() as u16).min(max_visible_items) + 4; // items + border + help
+        let list_height =
+            (self.items.len() as u16).min(max_visible_items) + 3 + help_lines; // items + border(2) + padding(1) + help
         let height = list_height.min(frame.area().height.saturating_sub(2));
         let area = centered_rect(60, height, frame.area());
 
@@ -245,8 +255,8 @@ impl<'a, T> Select<'a, T> {
         let inner_area = block.inner(area);
         frame.render_widget(block, area);
 
-        let chunks =
-            Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner_area);
+        let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(help_lines)])
+            .split(inner_area);
 
         let list_items: Vec<ListItem> = self
             .items
@@ -274,11 +284,11 @@ impl<'a, T> Select<'a, T> {
         let list = List::new(list_items).scroll_padding(1);
         frame.render_stateful_widget(list, chunks[0], state);
 
-        let help_text = self
-            .help_message
-            .unwrap_or("↑↓ navigate, Enter select, Esc cancel");
-        let help_line = Line::from(Span::styled(help_text, self.theme.help));
-        frame.render_widget(help_line, chunks[1]);
+        // Render help as Paragraph with wrapping so long text reflows on narrow terminals
+        let help = Paragraph::new(help_text)
+            .style(self.theme.help)
+            .wrap(Wrap { trim: true });
+        frame.render_widget(help, chunks[1]);
     }
 }
 
