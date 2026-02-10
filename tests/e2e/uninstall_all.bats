@@ -53,6 +53,230 @@ teardown() {
 }
 
 # -----------------------------------------------------------------------------
+# Confirmation prompt tests
+# -----------------------------------------------------------------------------
+
+@test "uninstall-all --help shows --yes flag" {
+    run "$VIBERAILS_BIN" uninstall-all --help
+    assert_exit_code 0 "$status"
+    assert_contains "$output" "--yes"
+    assert_contains "$output" "-y"
+}
+
+@test "uninstall-all without --yes prompts and aborts on 'n'" {
+    # Create config and binary so there's something to uninstall
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Pipe 'n' to stdin — should abort without deleting anything
+    run bash -c "echo 'n' | '${bin_dir}/${VIBERAILS_EXE_NAME}' uninstall-all"
+
+    assert_exit_code 0 "$status"
+    assert_contains "$output" "Aborted"
+
+    # Nothing should have been deleted
+    [[ -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
+    [[ -d "$config_dir" ]]
+}
+
+@test "uninstall-all without --yes prompts and aborts on empty input" {
+    # Create config and binary
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Pipe empty string to stdin — should abort (default is N)
+    run bash -c "echo '' | '${bin_dir}/${VIBERAILS_EXE_NAME}' uninstall-all"
+
+    assert_exit_code 0 "$status"
+    assert_contains "$output" "Aborted"
+
+    # Nothing should have been deleted
+    [[ -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
+    [[ -d "$config_dir" ]]
+}
+
+@test "uninstall-all without --yes prompts and proceeds on 'y'" {
+    # Create config and binary
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Pipe 'y' to stdin — should proceed with uninstall
+    run bash -c "echo 'y' | '${bin_dir}/${VIBERAILS_EXE_NAME}' uninstall-all"
+
+    assert_exit_code 0 "$status"
+    assert_not_contains "$output" "Aborted"
+
+    # Everything should be cleaned up
+    [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
+    [[ ! -d "$config_dir" ]]
+}
+
+@test "uninstall-all without --yes prompts and proceeds on 'yes'" {
+    # Create config and binary
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Pipe 'yes' to stdin — should proceed with uninstall
+    run bash -c "echo 'yes' | '${bin_dir}/${VIBERAILS_EXE_NAME}' uninstall-all"
+
+    assert_exit_code 0 "$status"
+    assert_not_contains "$output" "Aborted"
+
+    # Everything should be cleaned up
+    [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
+    [[ ! -d "$config_dir" ]]
+}
+
+@test "uninstall-all without --yes prompts and proceeds on 'Y' (case-insensitive)" {
+    # Create config and binary
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Pipe 'Y' (uppercase) to stdin — should still proceed
+    run bash -c "echo 'Y' | '${bin_dir}/${VIBERAILS_EXE_NAME}' uninstall-all"
+
+    assert_exit_code 0 "$status"
+    assert_not_contains "$output" "Aborted"
+
+    [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
+    [[ ! -d "$config_dir" ]]
+}
+
+@test "uninstall-all --yes skips confirmation prompt" {
+    # Create config and binary
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # --yes should skip prompt entirely — no stdin needed
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
+
+    assert_exit_code 0 "$status"
+    # Should NOT show the confirmation prompt text
+    assert_not_contains "$output" "Are you sure"
+    assert_not_contains "$output" "Aborted"
+
+    [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
+    [[ ! -d "$config_dir" ]]
+}
+
+@test "uninstall-all -y shorthand works" {
+    # Create config and binary
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # -y short flag should work the same as --yes
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all -y
+
+    assert_exit_code 0 "$status"
+    assert_not_contains "$output" "Are you sure"
+    assert_not_contains "$output" "Aborted"
+
+    [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
+    [[ ! -d "$config_dir" ]]
+}
+
+@test "uninstall-all without --yes shows warning message" {
+    # Create config and binary
+    local config_dir="${XDG_CONFIG_HOME}/viberails"
+    mkdir -p "$config_dir"
+    cat > "${config_dir}/config.json" <<EOF
+{
+    "user": { "fail_open": true },
+    "install_id": "test-id",
+    "org": { "oid": "", "name": "", "url": "" }
+}
+EOF
+
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "$bin_dir"
+    cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
+
+    # Pipe 'n' and verify the warning text is shown
+    run bash -c "echo 'n' | '${bin_dir}/${VIBERAILS_EXE_NAME}' uninstall-all"
+
+    assert_exit_code 0 "$status"
+    assert_contains "$output" "permanently remove"
+    assert_contains "$output" "Are you sure"
+}
+
+# -----------------------------------------------------------------------------
 # No hooks installed tests
 # -----------------------------------------------------------------------------
 
@@ -74,7 +298,7 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Should succeed and indicate no hooks
     assert_contains "$output" "No hooks are currently installed"
@@ -102,7 +326,7 @@ EOF
     [[ -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Binary should be removed
     [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
@@ -133,7 +357,7 @@ EOF
     [[ -d "$config_dir" ]]
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Config directory should be removed
     [[ ! -d "$config_dir" ]]
@@ -152,7 +376,7 @@ EOF
     [[ ! -d "$config_dir" ]]
 
     # Run uninstall-all - should not crash
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Should complete without error
     [[ "$status" -eq 0 ]] || assert_contains "$output" "cleanup"
@@ -189,7 +413,7 @@ EOF
     [[ -f "${data_dir}/upgrade_state.json" ]]
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Data directory should be removed
     [[ ! -d "$data_dir" ]]
@@ -224,7 +448,7 @@ EOF
     [[ -f "${debug_dir}/debug-12345-abcdef.log" ]]
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Debug directory should be removed along with data dir
     [[ ! -d "$debug_dir" ]]
@@ -255,7 +479,7 @@ EOF
     [[ ! -d "$data_dir" ]]
 
     # Run uninstall-all - should not crash
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Should complete successfully
     [[ "$status" -eq 0 ]] || assert_contains "$output" "cleanup"
@@ -290,7 +514,7 @@ EOF
     [[ -f "$lock_file" ]]
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Lock file should be removed
     [[ ! -f "$lock_file" ]]
@@ -326,7 +550,7 @@ EOF
     [[ -f "${bin_dir}/.viberails_new_aabbccdd" ]]
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # All temp files should be removed
     [[ ! -f "${bin_dir}/viberails_upgrade_12345678" ]]
@@ -356,7 +580,7 @@ EOF
     echo "99999" > "${bin_dir}/.viberails.upgrade.lock"
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Should mention cleaned files
     assert_contains "$output" "temporary file" || assert_contains "$output" "Cleaned"
@@ -405,7 +629,7 @@ EOF
     [[ -f "${bin_dir}/viberails_upgrade_12345678" ]]
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Everything should be gone
     [[ ! -d "$config_dir" ]]
@@ -433,7 +657,7 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Should show success message
     assert_contains "$output" "cleanup complete" || assert_contains "$output" "removed"
@@ -474,7 +698,7 @@ EOF
     chmod 555 "$protected_dir" 2>/dev/null || skip "cannot change permissions"
 
     # Run uninstall-all - should complete but may report errors
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Restore permissions for cleanup
     chmod 755 "$protected_dir" 2>/dev/null || true
@@ -508,7 +732,7 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Should complete and remove empty directory
     [[ ! -d "$config_dir" ]]
@@ -537,7 +761,7 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Everything should be removed
     [[ ! -d "$data_dir" ]]
@@ -565,7 +789,7 @@ EOF
     echo "another tool" > "${bin_dir}/another-tool"
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # viberails should be gone, but other files should remain
     [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
@@ -599,7 +823,7 @@ EOF
     touch "${bin_dir}/viberails_config_backup"
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # viberails temp files should be gone
     [[ ! -f "${bin_dir}/viberails_upgrade_12345678" ]]
@@ -632,7 +856,7 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Should complete successfully (even without actual hooks installed)
     # The important thing is it doesn't crash trying to enumerate providers
@@ -660,10 +884,10 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # First uninstall
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Second uninstall using the test binary (since installed one is gone)
-    run "$VIBERAILS_BIN" uninstall-all
+    run "$VIBERAILS_BIN" uninstall-all --yes
 
     # Should not crash - dirs already gone is OK
     [[ -n "$output" ]]
@@ -693,7 +917,7 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all 2>&1 || true
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes 2>&1 || true
 
     # The precious data should still exist (symlink was not followed)
     [[ -d "$target_dir" ]]
@@ -736,7 +960,7 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all 2>&1 || true
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes 2>&1 || true
 
     # The precious data should still exist (symlink was not followed)
     [[ -d "$target_dir" ]]
@@ -775,7 +999,7 @@ EOF
     ln -s "$target_file" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run uninstall-all using the test binary (not the symlink)
-    run "$VIBERAILS_BIN" uninstall-all 2>&1 || true
+    run "$VIBERAILS_BIN" uninstall-all --yes 2>&1 || true
 
     # The target file should still exist (symlink was not followed)
     [[ -f "$target_file" ]]
@@ -812,7 +1036,7 @@ EOF
     ln -s "$target_file" "${bin_dir}/viberails_upgrade_malicious"
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all 2>&1 || true
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes 2>&1 || true
 
     # The target file should still exist (symlink was not followed)
     [[ -f "$target_file" ]]
@@ -842,7 +1066,7 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all 2>&1 || true
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes 2>&1 || true
 
     # Should indicate there was a symlink issue (or at least not crash)
     # The command may fail but should not delete the target
@@ -873,7 +1097,7 @@ EOF
     [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
 
     # Run uninstall-all using test binary (not from bin_dir)
-    run "$VIBERAILS_BIN" uninstall-all 2>&1
+    run "$VIBERAILS_BIN" uninstall-all --yes 2>&1
 
     # Should not crash — missing binary is handled gracefully
     [[ -n "$output" ]]
@@ -898,7 +1122,7 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run uninstall-all — should not crash on bad config
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all 2>&1
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes 2>&1
 
     # Should complete without segfault or panic
     [[ -n "$output" ]]
@@ -927,7 +1151,7 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Entire config directory (including extra files) should be removed
     [[ ! -d "$config_dir" ]]
@@ -954,7 +1178,7 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Should explicitly say binary was removed
     assert_contains "$output" "Binary removed"
@@ -976,7 +1200,7 @@ EOF
     mkdir -p "$bin_dir"
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Should explicitly say config was removed
     assert_contains "$output" "Configuration removed"
@@ -1002,7 +1226,7 @@ EOF
     mkdir -p "$bin_dir"
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Should explicitly say data directory was removed
     assert_contains "$output" "Data directory removed"
@@ -1034,7 +1258,7 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run uninstall-all
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Wait briefly to ensure no background process recreates anything
     sleep 0.5
@@ -1071,7 +1295,7 @@ EOF
     [[ -x "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
 
     # Run from the installed location — exercises self_replace::self_delete_at
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     assert_exit_code 0 "$status"
 
@@ -1098,7 +1322,7 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run from installed location (self-delete path)
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Should report successful removal even through self-delete
     assert_contains "$output" "Binary removed"
@@ -1125,7 +1349,7 @@ EOF
     echo "me too" > "${bin_dir}/important-script.sh"
 
     # Self-delete via installed binary
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Binary gone, neighbors untouched
     [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
@@ -1157,7 +1381,7 @@ EOF
     ln -s "/nonexistent/path/to/binary" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run from build dir (the symlink isn't executable)
-    run "$VIBERAILS_BIN" uninstall-all 2>&1 || true
+    run "$VIBERAILS_BIN" uninstall-all --yes 2>&1 || true
 
     # Should not crash — dangling symlink is detected and refused
     [[ -n "$output" ]]
@@ -1193,7 +1417,7 @@ EOF
     ln -s "$link_mid" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run from build dir
-    run "$VIBERAILS_BIN" uninstall-all 2>&1 || true
+    run "$VIBERAILS_BIN" uninstall-all --yes 2>&1 || true
 
     # Target must survive the symlink chain
     [[ -f "$target_file" ]]
@@ -1225,7 +1449,7 @@ EOF
     # Create lock file as symlink to critical file
     ln -s "$target_file" "${bin_dir}/.viberails.upgrade.lock"
 
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all 2>&1 || true
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes 2>&1 || true
 
     # Critical file must survive (symlink lock was refused by safe_remove_file)
     [[ -f "$target_file" ]]
@@ -1259,7 +1483,7 @@ EOF
     mkdir -p "$bin_dir"
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Data directory should be removed
     [[ ! -d "$data_dir" ]]
@@ -1294,7 +1518,7 @@ EOF
     mkdir -p "$bin_dir"
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Config dir removed
     [[ ! -d "$config_dir" ]]
@@ -1323,7 +1547,7 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run from installed location (path with spaces)
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     assert_exit_code 0 "$status"
     [[ ! -f "${bin_dir}/${VIBERAILS_EXE_NAME}" ]]
@@ -1347,7 +1571,7 @@ EOF
     # Config and data cleanup should still proceed.
     export VIBERAILS_BIN_DIR="relative/invalid/path"
 
-    run "$VIBERAILS_BIN" uninstall-all 2>&1 || true
+    run "$VIBERAILS_BIN" uninstall-all --yes 2>&1 || true
 
     # Config and data should be cleaned up despite binary failure
     [[ ! -d "$config_dir" ]] || {
@@ -1385,7 +1609,7 @@ EOF
 
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Config dir should still not exist (not recreated by uninstall path)
     [[ ! -d "$config_dir" ]] || {
@@ -1415,7 +1639,7 @@ EOF
 
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     # Data dir should still not exist (not recreated by uninstall path)
     [[ ! -d "$data_dir" ]] || {
@@ -1441,7 +1665,7 @@ EOF
 
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes
 
     assert_exit_code 0 "$status"
     assert_contains "$output" "Binary removed"
@@ -1478,7 +1702,7 @@ EOF
     cp "$VIBERAILS_BIN" "${bin_dir}/${VIBERAILS_EXE_NAME}"
 
     # Run uninstall-all — should return non-zero due to symlink refusal
-    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all 2>&1
+    run "${bin_dir}/${VIBERAILS_EXE_NAME}" uninstall-all --yes 2>&1
     assert_exit_code 1 "$status"
 
     # Binary should still be cleaned up
@@ -1510,7 +1734,7 @@ EOF
     # Invalid relative path triggers validation failure
     export VIBERAILS_BIN_DIR="relative/invalid"
 
-    run "$VIBERAILS_BIN" uninstall-all 2>&1
+    run "$VIBERAILS_BIN" uninstall-all --yes 2>&1
     assert_exit_code 1 "$status"
 
     # Config and data should still be cleaned up despite binary failure

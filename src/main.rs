@@ -13,7 +13,7 @@ use viberails::{
     Providers, UpgradeResult, clean_debug_logs, codex_hook, configure, get_debug_log_path,
     get_menu_options, hook, install, is_authorized, is_auto_upgrade_enabled, is_browser_available,
     join_team, list, login, open_browser, poll_upgrade, set_debug_mode, show_configuration,
-    tui::{MessageStyle, message_prompt, select_prompt_with_shortcuts, text_prompt},
+    tui::{MessageStyle, message_prompt, select_prompt, select_prompt_with_shortcuts, text_prompt},
     uninstall_all, uninstall_hooks, upgrade,
 };
 
@@ -56,7 +56,11 @@ enum Command {
     #[command(visible_alias = "uninstall")]
     UninstallHooks,
     /// Uninstall everything: remove all hooks, binary, config, and data
-    UninstallAll,
+    UninstallAll {
+        /// Skip confirmation prompt and proceed with uninstall
+        #[arg(long, short)]
+        yes: bool,
+    },
 
     /// List Hooks
     #[command(visible_alias = "ls")]
@@ -165,6 +169,31 @@ fn open_team_dashboard() {
         );
         let _ = open_browser(&team_url);
     }
+}
+
+/// Prompt the user for confirmation before running uninstall-all via CLI.
+/// Reads a single line from stdin and checks for "y" or "yes" (case-insensitive).
+///
+/// Parameters: None
+///
+/// Returns: `Ok(true)` if user confirmed, `Ok(false)` if declined, `Err` on IO failure.
+fn confirm_uninstall_cli() -> Result<bool> {
+    println!("This will permanently remove:");
+    println!("  - All hooks from all providers");
+    println!("  - Configuration and team settings");
+    println!("  - Debug logs and data directory");
+    println!("  - The viberails binary");
+    println!();
+    print!("Are you sure? [y/N]: ");
+    io::stdout().flush().context("Failed to flush stdout")?;
+
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .context("Failed to read confirmation input")?;
+
+    let answer = input.trim().to_lowercase();
+    Ok(answer == "y" || answer == "yes")
 }
 
 /// Initialize logging for callback commands with debug mode support.
@@ -295,10 +324,27 @@ fn show_menu() -> (bool, Result<()>) {
                 r
             }
             Some(MenuAction::UninstallAll) => {
-                let r = uninstall_all();
-                ran_uninstall_all = true;
-                wait_for_keypress();
-                r
+                // Confirm before proceeding — uninstall-all is destructive and irreversible
+                let confirm = select_prompt(
+                    "Confirm Uninstall",
+                    vec!["Yes, uninstall everything", "Cancel"],
+                    Some("This will permanently remove all hooks, configuration, data, and the binary. This cannot be undone."),
+                )
+                .context("Failed to read confirmation");
+
+                match confirm {
+                    Ok(Some(0)) => {
+                        // User confirmed — proceed with uninstall
+                        let r = uninstall_all();
+                        ran_uninstall_all = true;
+                        wait_for_keypress();
+                        r
+                    }
+                    Ok(_) | Err(_) => {
+                        // User cancelled or pressed Esc — return to menu
+                        continue;
+                    }
+                }
             }
             Some(MenuAction::ListHooks) => {
                 list();
@@ -340,7 +386,7 @@ fn main() -> Result<()> {
     // Skip auto-upgrade after full uninstall — it would re-download the binary
     // and recreate config files we just removed.
     // Tracks both CLI (Command::UninstallAll) and TUI menu (show_menu returns true).
-    let mut is_uninstall_all = matches!(args.command, Some(Command::UninstallAll));
+    let mut is_uninstall_all = matches!(args.command, Some(Command::UninstallAll { .. }));
 
     if is_callback {
         init_callback_logging()?;
@@ -361,7 +407,13 @@ fn main() -> Result<()> {
         }
         Some(Command::Install { providers }) => install(providers.as_deref()),
         Some(Command::UninstallHooks) => uninstall_hooks(),
-        Some(Command::UninstallAll) => uninstall_all(),
+        Some(Command::UninstallAll { yes }) => {
+            if !yes && !confirm_uninstall_cli()? {
+                println!("Aborted.");
+                return Ok(());
+            }
+            uninstall_all()
+        }
         Some(Command::List) => {
             list();
             Ok(())
