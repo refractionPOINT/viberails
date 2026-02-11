@@ -84,6 +84,7 @@ class SigningPublisher:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):  # type: ignore
+        self.pub.transport.close()
         pass
 
     def sign_archive(self, sign_type: SignFileType, input: str, output: str, timeout: float) -> None:
