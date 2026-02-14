@@ -281,6 +281,49 @@ Viberails is powered by [LimaCharlie](https://limacharlie.io), a security infras
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## Writing Custom D&R Rules
+
+You can create custom Detection & Response (D&R) rules in the [web dashboard](https://app.viberails.io) to detect and block specific AI tool behaviors.
+
+### Blocking Rules
+
+Blocking rules use `webhook reject` to deny tool operations in real-time. For example:
+
+**Detection:**
+```yaml
+target: webhook
+op: and
+rules:
+  - op: is
+    path: event/auth/tool_name
+    value: Read
+  - op: contains
+    path: event/auth/tool_input/file_path
+    value: .ssh/
+```
+
+**Response:**
+```yaml
+- action: report
+  name: blocked ssh key access
+- action: webhook reject
+```
+
+### Important: Routing Information Not Available in Blocking Rules
+
+Blocking D&R rules are evaluated **before** the Sensor ID (SID) has been resolved. This means that the `routing` dictionary (which contains sensor metadata) is **not populated** at evaluation time.
+
+The following **will not work** in blocking rules (rules with `target: webhook`):
+
+- **Platform operators**: `is windows`, `is linux`, `is mac`, `is chrome`, `is net`, `is gcp`, `is carbon_black`, `is platform`, `is text`, `is json`
+- **Architecture operators**: `is 32 bit`, `is 64 bit`, `is arm`
+- **Tag operator**: `is tagged`
+- **Any `path` referencing `routing/`**: e.g., `routing/sid`, `routing/tags`, `routing/hostname`, `routing/platform`
+
+These operators rely on sensor identity and metadata that is resolved **after** the blocking decision has already been made. Rules using these operators will silently fail to match.
+
+**What to do instead:** Write blocking rules that inspect the event payload directly (e.g., `event/auth/tool_name`, `event/auth/tool_input`). For rules that need routing/platform/tag information, use standard (non-blocking) D&R rules which evaluate after full event ingestion.
+
 ## Web Dashboard
 
 Access your team's dashboard at [app.viberails.io](https://app.viberails.io):
