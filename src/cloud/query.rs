@@ -138,28 +138,29 @@ fn mine_session_id(data: &Value) -> Option<String> {
 
 /// Return the path to the `LimaCharlie` EDR event socket, if it exists on disk.
 ///
-/// Matches `lc_sensor` collector 30 logic: root uses `/var/run/lc_event.sock`,
-/// non-root uses `$HOME/.local/run/lc_event.sock` (falls back to the root path
-/// when `HOME` is not set, same as the sensor).
+/// The sensor picks its socket path based on **its own** euid, not ours.
+/// In production the sensor runs as root (`/var/run/lc_event.sock`); in
+/// debug/dev it may run as a regular user (`$HOME/.local/run/lc_event.sock`).
+/// We probe both locations, production first.
 #[cfg(unix)]
 fn get_lc_socket_path() -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
 
-    // SAFETY: geteuid() is a simple syscall with no preconditions.
-    let path = if unsafe { libc::geteuid() } == 0 {
-        PathBuf::from("/var/run/lc_event.sock")
-    } else if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(".local/run/lc_event.sock")
-    } else {
-        // Match lc_sensor: fall back to root path when HOME is not set
-        PathBuf::from("/var/run/lc_event.sock")
-    };
-
-    if path.exists() {
-        Some(path)
-    } else {
-        None
+    // Production: sensor runs as root.
+    let root_path = PathBuf::from("/var/run/lc_event.sock");
+    if root_path.exists() {
+        return Some(root_path);
     }
+
+    // Debug / dev: sensor runs as current user.
+    if let Ok(home) = std::env::var("HOME") {
+        let user_path = PathBuf::from(home).join(".local/run/lc_event.sock");
+        if user_path.exists() {
+            return Some(user_path);
+        }
+    }
+
+    None
 }
 
 /// Send an HTTP POST to the `lc_sensor` event socket at the given path.
