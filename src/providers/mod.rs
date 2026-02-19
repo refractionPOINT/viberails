@@ -10,6 +10,7 @@ use anyhow::Result;
 
 pub mod claudecode;
 pub mod codex;
+pub mod copilot;
 pub mod cursor;
 pub mod discovery;
 pub mod gemini;
@@ -190,6 +191,7 @@ pub enum Providers {
     Codex,
     OpenCode,
     OpenClaw,
+    Copilot,
 }
 
 #[derive(Serialize, Display, Clone)]
@@ -202,9 +204,9 @@ pub enum HookDecision {
 
 #[derive(Serialize)]
 pub(crate) struct HookAnswer {
-    decision: HookDecision,
+    pub(crate) decision: HookDecision,
     #[serde(skip_serializing_if = "Option::is_none")]
-    reason: Option<String>,
+    pub(crate) reason: Option<String>,
 }
 
 impl HookAnswer {

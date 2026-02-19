@@ -48,7 +48,7 @@ enum Command {
 
     /// Install hooks
     Install {
-        /// Provider IDs to install (comma-separated: claude-code,cursor,gemini-cli,codex,opencode,openclaw) or "all" for all detected
+        /// Provider IDs to install (comma-separated: claude-code,cursor,gemini-cli,codex,opencode,openclaw,copilot) or "all" for all detected
         #[arg(long, short)]
         providers: Option<String>,
     },
@@ -113,6 +113,10 @@ enum Command {
     /// `OpenClaw` callback
     #[command(hide = true)]
     OpenclawCallback,
+
+    /// GitHub `Copilot` CLI callback
+    #[command(hide = true)]
+    CopilotCallback,
 }
 
 fn init_logging(verbose: bool) -> Result<()> {
@@ -380,6 +384,7 @@ fn main() -> Result<()> {
                 | Command::CodexCallback { .. }
                 | Command::OpencodeCallback
                 | Command::OpenclawCallback
+                | Command::CopilotCallback
         )
     );
 
@@ -465,6 +470,7 @@ fn main() -> Result<()> {
         Some(Command::CodexCallback { payload }) => codex_hook(&payload),
         Some(Command::OpencodeCallback) => hook(Providers::OpenCode),
         Some(Command::OpenclawCallback) => hook(Providers::OpenClaw),
+        Some(Command::CopilotCallback) => hook(Providers::Copilot),
     };
 
     //

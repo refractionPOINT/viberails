@@ -1,5 +1,6 @@
 mod claude_tests;
 mod codex_tests;
+mod copilot_tests;
 mod cursor_tests;
 mod discovery_tests;
 mod gemini_tests;
