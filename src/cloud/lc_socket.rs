@@ -49,8 +49,7 @@ pub(crate) fn post_to_lc_socket(
     use std::os::unix::net::UnixStream;
     use std::time::Duration;
 
-    let mut stream =
-        UnixStream::connect(socket_path).context("connect to lc_event socket")?;
+    let mut stream = UnixStream::connect(socket_path).context("connect to lc_event socket")?;
     stream
         .set_write_timeout(Some(Duration::from_secs(5)))
         .context("set write timeout")?;
@@ -77,14 +76,10 @@ pub(crate) fn post_to_lc_socket(
     stream
         .write_all(header.as_bytes())
         .context("write request header")?;
-    stream
-        .write_all(body_bytes)
-        .context("write request body")?;
+    stream.write_all(body_bytes).context("write request body")?;
 
     let mut response = Vec::new();
-    stream
-        .read_to_end(&mut response)
-        .context("read response")?;
+    stream.read_to_end(&mut response).context("read response")?;
 
     let response_str = String::from_utf8_lossy(&response);
     let status_line = response_str.lines().next().unwrap_or("empty response");
@@ -107,11 +102,7 @@ pub(crate) fn get_lc_socket_path() -> Option<std::path::PathBuf> {
         .join("limacharlie")
         .join("lc_event.sock");
 
-    if path.exists() {
-        Some(path)
-    } else {
-        None
-    }
+    if path.exists() { Some(path) } else { None }
 }
 
 /// Send an HTTP POST to the `lc_sensor` event socket on Windows via `AF_UNIX`.
@@ -123,8 +114,8 @@ pub(crate) fn post_to_lc_socket(
     body: &str,
 ) -> Result<()> {
     use windows_sys::Win32::Networking::WinSock::{
-        AF_UNIX, INVALID_SOCKET, SOCKADDR, SOCK_STREAM, SOL_SOCKET, SO_RCVTIMEO, SO_SNDTIMEO,
-        WSADATA, WSACleanup, WSAStartup, closesocket, connect, recv, send, setsockopt, socket,
+        AF_UNIX, INVALID_SOCKET, SO_RCVTIMEO, SO_SNDTIMEO, SOCK_STREAM, SOCKADDR, SOL_SOCKET,
+        WSACleanup, WSADATA, WSAStartup, closesocket, connect, recv, send, setsockopt, socket,
     };
 
     /// `SOCKADDR_UN` is not defined in `windows-sys`; matches the Win32 layout.
@@ -263,6 +254,10 @@ pub(crate) fn post_to_lc_socket(
     } else {
         bail!("lc_event socket returned: {status_line}");
     }
+}
+
+pub fn edr_link_available() -> bool {
+    get_lc_socket_path().is_some()
 }
 
 /// Forward an event to the local `LimaCharlie` EDR sensor via its event socket.
