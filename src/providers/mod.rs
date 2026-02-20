@@ -26,7 +26,7 @@ pub use registry::ProviderRegistry;
 pub use selector::{select_providers, select_providers_for_uninstall};
 
 use crate::{
-    cloud::query::{CloudQuery, CloudVerdict},
+    cloud::{CloudTrait, CloudVerdict},
     common::PROJECT_NAME,
     config::Config,
 };
@@ -262,7 +262,7 @@ pub trait LLmProviderTrait: Display {
         }
     }
 
-    fn authorize_tool(&self, cloud: &CloudQuery, config: &Config, value: Value) -> HookAnswer {
+    fn authorize_tool(&self, cloud: &dyn CloudTrait, config: &Config, value: Value) -> HookAnswer {
         //
         // Do we fail-open?
         //
@@ -342,7 +342,7 @@ pub trait LLmProviderTrait: Display {
 
         value
     }
-    fn io(&self, cloud: &CloudQuery, config: &Config) -> Result<()> {
+    fn io(&self, cloud: &dyn CloudTrait, config: &Config) -> Result<()> {
         //
         // This'll fail if we're not authorized
         //

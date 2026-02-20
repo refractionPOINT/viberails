@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use log::{debug, error, info};
 
 use crate::{
-    cloud::query::CloudQuery,
+    cloud::LcCloud,
     common::PROJECT_NAME,
     config::Config,
     providers::{
@@ -41,7 +41,7 @@ pub fn hook(provider: Providers) -> Result<()> {
     debug!("Organization authorized: oid={}", config.org.oid);
 
     // This'll fail if we're not authorized
-    let ret = CloudQuery::new(&config, provider).context("Unable to initialize Cloud API");
+    let ret = LcCloud::new(&config, provider).context("Unable to initialize Cloud API");
 
     // Let the user decide to fail open if not properly configured
     let cloud = match ret {
@@ -92,7 +92,7 @@ pub fn codex_hook(payload: &str) -> Result<()> {
         bail!("not authorized");
     }
 
-    let ret = CloudQuery::new(&config, Providers::Codex).context("Unable to initialize Cloud API");
+    let ret = LcCloud::new(&config, Providers::Codex).context("Unable to initialize Cloud API");
 
     let cloud = match ret {
         Ok(v) => {

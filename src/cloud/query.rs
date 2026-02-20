@@ -97,7 +97,7 @@ struct CloudRequest<'a> {
     notify: Option<Value>,
 }
 
-pub struct CloudQuery<'a> {
+pub struct LcCloud<'a> {
     config: &'a Config,
     url: String,
     secret: String,
@@ -185,7 +185,17 @@ impl<'a> CloudRequestMeta<'a> {
     }
 }
 
-impl<'a> CloudQuery<'a> {
+impl super::CloudTrait for LcCloud<'_> {
+    fn notify(&self, data: Value) -> Result<()> {
+        self.notify(data)
+    }
+
+    fn authorize(&self, data: Value) -> Result<CloudVerdict> {
+        self.authorize(data)
+    }
+}
+
+impl<'a> LcCloud<'a> {
     pub fn new(config: &'a Config, provider: Providers) -> Result<Self> {
         //
         // bail if we're not actually yet authorized

@@ -2,6 +2,9 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use log::{info, warn};
+use serde_json::Value;
+
+use super::CloudVerdict;
 
 /// Maximum body size accepted by the `lc_sensor` event socket (60 KB).
 pub(crate) const MAX_LC_SOCKET_BODY: usize = 60 * 1024;
@@ -274,5 +277,32 @@ pub fn forward_to_edr(ppid: u32, event_id: &str, body: &str) {
     match result {
         Ok(()) => info!("EDR event forwarded via lc_event socket (rtt={latency_ms}ms)"),
         Err(e) => warn!("Failed to forward to lc_event socket (rtt={latency_ms}ms): {e}"),
+    }
+}
+
+pub struct LcSocket {
+    ppid: Option<u32>,
+}
+
+#[allow(dead_code)]
+impl LcSocket {
+    pub fn new(ppid: Option<u32>) -> Self {
+        Self { ppid }
+    }
+}
+
+impl super::CloudTrait for LcSocket {
+    fn notify(&self, data: Value) -> Result<()> {
+        if let Some(ppid) = self.ppid
+            && let Ok(body) = serde_json::to_string(&data)
+        {
+            forward_to_edr(ppid, "viberails_notify", &body);
+        }
+        Ok(())
+    }
+
+    fn authorize(&self, data: Value) -> Result<CloudVerdict> {
+        self.notify(data)?;
+        Ok(CloudVerdict::Allow)
     }
 }
