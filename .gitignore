@@ -27,6 +27,8 @@ go.work.sum
 # IDE
 /.zed
 
+/ok
+
 # rust
 /target
 /Cargo.lock
