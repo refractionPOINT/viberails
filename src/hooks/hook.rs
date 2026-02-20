@@ -6,8 +6,8 @@ use crate::{
     common::PROJECT_NAME,
     config::Config,
     providers::{
-        LLmProviderTrait, Providers, claudecode::ClaudeCode, cursor::Cursor, gemini::Gemini,
-        log_payload_structure, openclaw::OpenClaw, opencode::OpenCode,
+        LLmProviderTrait, Providers, claudecode::ClaudeCode, copilot::Copilot, cursor::Cursor,
+        gemini::Gemini, log_payload_structure, openclaw::OpenClaw, opencode::OpenCode,
     },
 };
 
@@ -86,6 +86,7 @@ pub fn hook(provider: Providers) -> Result<()> {
         Providers::GeminiCli => Gemini::new()?.io(&clouds, &config),
         Providers::OpenCode => OpenCode::new()?.io(&clouds, &config),
         Providers::OpenClaw => OpenClaw::new()?.io(&clouds, &config),
+        Providers::Copilot => Copilot::new()?.io(&clouds, &config),
         Providers::Codex => bail!("Codex requires payload argument, use codex_hook() instead"),
     }
 }

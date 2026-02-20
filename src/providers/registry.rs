@@ -1,5 +1,6 @@
 use super::claudecode::ClaudeCodeDiscovery;
 use super::codex::CodexDiscovery;
+use super::copilot::CopilotDiscovery;
 use super::cursor::CursorDiscovery;
 use super::discovery::{DiscoveryResult, ProviderFactory};
 use super::gemini::GeminiDiscovery;
@@ -30,6 +31,7 @@ impl ProviderRegistry {
             Box::new(CodexDiscovery),
             Box::new(OpenCodeDiscovery),
             Box::new(OpenClawDiscovery),
+            Box::new(CopilotDiscovery),
         ];
 
         Self { providers }

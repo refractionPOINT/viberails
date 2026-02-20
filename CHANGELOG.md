@@ -17,6 +17,8 @@ All notable changes to viberails will be documented in this file.
 
 ### Added
 
+- GitHub Copilot CLI provider support (install, uninstall, list hooks)
+
 - New `uninstall-all` CLI command and TUI menu option for complete cleanup
   - Confirmation prompt before proceeding (CLI: stdin y/N prompt, TUI: select prompt)
   - `--yes` / `-y` flag to skip confirmation for scripted/CI usage

@@ -28,6 +28,7 @@ AI coding assistants like Claude Code, Cursor, and Copilot are transforming how 
     - Claude Code
     - Cursor
     - Gemini CLI
+    - GitHub Copilot CLI
     - OpenAI Codex CLI
     - OpenCode
     - OpenClaw
@@ -113,7 +114,7 @@ Viberails automatically detects which AI tools you have installed and lets you c
   [ ] OpenAI Codex CLI [not found]
 ```
 
-**Available provider IDs:** `claude-code`, `cursor`, `gemini-cli`, `codex`, `opencode`, `openclaw`
+**Available provider IDs:** `claude-code`, `copilot`, `cursor`, `gemini-cli`, `codex`, `opencode`, `openclaw`
 
 ### 3. Add Your Team
 
