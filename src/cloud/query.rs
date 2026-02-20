@@ -8,12 +8,11 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::{
+    cloud::common::get_ppid,
     common::{PROJECT_VERSION, PROJECT_VERSION_HASH, display_authorize_help, user_agent},
     config::Config,
     providers::Providers,
 };
-
-use super::lc_socket::forward_to_edr;
 
 const CLOUD_API_TIMEOUT_SECS: u64 = 10;
 
@@ -92,29 +91,16 @@ struct CloudRequestMeta<'a> {
 struct CloudRequest<'a> {
     meta_data: CloudRequestMeta<'a>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    auth: Option<Value>,
+    auth: Option<&'a Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    notify: Option<Value>,
+    notify: Option<&'a Value>,
 }
 
-pub struct LcCloud<'a> {
-    config: &'a Config,
+pub struct LcCloud {
+    config: Config,
     url: String,
     secret: String,
     provider: Providers,
-}
-
-pub(crate) fn get_ppid() -> Option<u32> {
-    use sysinfo::{ProcessRefreshKind, System, UpdateKind};
-
-    let pid = sysinfo::get_current_pid().ok()?;
-    let mut sys = System::new();
-    sys.refresh_processes_specifics(
-        sysinfo::ProcessesToUpdate::Some(&[pid]),
-        false,
-        ProcessRefreshKind::nothing().with_exe(UpdateKind::Never),
-    );
-    sys.process(pid)?.parent().map(sysinfo::Pid::as_u32)
 }
 
 fn mine_session_id(data: &Value) -> Option<String> {
@@ -185,18 +171,18 @@ impl<'a> CloudRequestMeta<'a> {
     }
 }
 
-impl super::CloudTrait for LcCloud<'_> {
-    fn notify(&self, data: Value) -> Result<()> {
+impl super::CloudTrait for LcCloud {
+    fn notify(&self, data: &Value) -> Result<()> {
         self.notify(data)
     }
 
-    fn authorize(&self, data: Value) -> Result<CloudVerdict> {
+    fn authorize(&self, data: &Value) -> Result<CloudVerdict> {
         self.authorize(data)
     }
 }
 
-impl<'a> LcCloud<'a> {
-    pub fn new(config: &'a Config, provider: Providers) -> Result<Self> {
+impl LcCloud {
+    pub fn new(config: Config, provider: Providers) -> Result<Self> {
         //
         // bail if we're not actually yet authorized
         //
@@ -257,13 +243,13 @@ impl<'a> LcCloud<'a> {
         Ok((parsed.to_string(), secret))
     }
 
-    pub fn notify(&self, data: Value) -> Result<()> {
+    pub fn notify(&self, data: &Value) -> Result<()> {
         debug!("Preparing notification request to cloud");
-        let session_id = mine_session_id(&data);
+        let session_id = mine_session_id(data);
         debug!("Session ID: {session_id:?}");
 
         let meta_data = CloudRequestMeta::new(
-            self.config,
+            &self.config,
             session_id,
             &self.provider,
             CloudQueryType::Notify,
@@ -277,13 +263,6 @@ impl<'a> LcCloud<'a> {
         // Log the full request being sent to LimaCharlie
         if let Ok(pretty) = serde_json::to_string_pretty(&req) {
             debug!("CLOUD_REQUEST (notify):\n{pretty}");
-        }
-
-        // Forward to local EDR sensor if available (best-effort, before the webhook)
-        if let Some(ppid) = req.meta_data.ppid
-            && let Ok(body) = serde_json::to_string(&req)
-        {
-            forward_to_edr(ppid, "viberails_notify", &body);
         }
 
         debug!("Sending notification to: {}", self.url);
@@ -315,13 +294,13 @@ impl<'a> LcCloud<'a> {
         Ok(())
     }
 
-    pub fn authorize(&self, data: Value) -> Result<CloudVerdict> {
+    pub fn authorize(&self, data: &Value) -> Result<CloudVerdict> {
         debug!("Preparing authorization request to cloud");
-        let session_id = mine_session_id(&data);
+        let session_id = mine_session_id(data);
         debug!("Session ID: {session_id:?}");
 
         let meta_data = CloudRequestMeta::new(
-            self.config,
+            &self.config,
             session_id,
             &self.provider,
             CloudQueryType::Auth,
@@ -336,13 +315,6 @@ impl<'a> LcCloud<'a> {
         // Log the full request being sent to LimaCharlie
         if let Ok(pretty) = serde_json::to_string_pretty(&req) {
             debug!("CLOUD_REQUEST (auth):\n{pretty}");
-        }
-
-        // Forward to local EDR sensor if available (best-effort, before the webhook)
-        if let Some(ppid) = req.meta_data.ppid
-            && let Ok(body) = serde_json::to_string(&req)
-        {
-            forward_to_edr(ppid, "viberails_auth", &body);
         }
 
         debug!("Sending authorization to: {}", self.url);

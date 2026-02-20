@@ -21,7 +21,7 @@ enum SafeRemoveResult {
 }
 
 use crate::{
-    cloud::lc_socket::edr_link_available,
+    cloud::lc_socket::LcSocket,
     common::{
         EXECUTABLE_NAME, PROJECT_NAME, display_authorize_help, print_header,
         project_config_dir_path, project_data_dir_path, validated_binary_dir,
@@ -602,7 +602,7 @@ pub fn install(providers: Option<&str>) -> Result<()> {
     // Make sure we're autorized, otherwise it'll fail silently
     //
     let config = Config::load()?;
-    if !config.org.authorized() && !edr_link_available() {
+    if !LcSocket::available() && !config.org.authorized() {
         display_authorize_help();
         bail!("Not Authorized");
     }

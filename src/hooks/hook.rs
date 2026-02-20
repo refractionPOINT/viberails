@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use log::{debug, error, info};
 
 use crate::{
-    cloud::LcCloud,
+    cloud::{CloudTrait, LcCloud, lc_socket::LcSocket},
     common::PROJECT_NAME,
     config::Config,
     providers::{
@@ -31,41 +31,54 @@ pub fn hook(provider: Providers) -> Result<()> {
         config.user.debug
     );
 
-    if !config.org.authorized() {
+    let mut clouds: Vec<Box<dyn CloudTrait>> = Vec::new();
+
+    if let Ok(socket) = LcSocket::new() {
+        info!("Using lc_socket");
+        clouds.push(Box::new(socket));
+    }
+
+    if config.org.authorized() {
+        debug!("Organization authorized: oid={}", config.org.oid);
+
+        let ret = LcCloud::new(config.clone(), provider).context("Unable to initialize Cloud API");
+
+        // Let the user decide to fail open if not properly configured
+        match ret {
+            Ok(v) => {
+                debug!("Cloud API initialized successfully");
+                clouds.push(Box::new(v));
+            }
+            Err(e) => {
+                error!("Unable to init cloud {e}");
+                if config.user.fail_open {
+                    debug!("fail_open=true, allowing despite cloud init failure");
+                }
+                return Err(e);
+            }
+        }
+    } else {
         debug!(
             "Organization not authorized (oid={}, url={})",
             config.org.oid, config.org.url
         );
-        bail!("not authorized");
     }
-    debug!("Organization authorized: oid={}", config.org.oid);
 
-    // This'll fail if we're not authorized
-    let ret = LcCloud::new(&config, provider).context("Unable to initialize Cloud API");
+    info!("clound providers: {}", clouds.len());
 
-    // Let the user decide to fail open if not properly configured
-    let cloud = match ret {
-        Ok(v) => {
-            debug!("Cloud API initialized successfully");
-            v
-        }
-        Err(e) => {
-            error!("Unable to init cloud {e}");
-            if config.user.fail_open {
-                debug!("fail_open=true, allowing despite cloud init failure");
-                return Ok(());
-            }
-            return Err(e);
-        }
-    };
+    //
+    // fast path, no configuration found, just return success
+    //
+    if clouds.is_empty() {
+        return Ok(());
+    }
 
-    debug!("Delegating to provider-specific IO handler");
     match provider {
-        Providers::ClaudeCode => ClaudeCode::new()?.io(&cloud, &config),
-        Providers::Cursor => Cursor::new()?.io(&cloud, &config),
-        Providers::GeminiCli => Gemini::new()?.io(&cloud, &config),
-        Providers::OpenCode => OpenCode::new()?.io(&cloud, &config),
-        Providers::OpenClaw => OpenClaw::new()?.io(&cloud, &config),
+        Providers::ClaudeCode => ClaudeCode::new()?.io(&clouds, &config),
+        Providers::Cursor => Cursor::new()?.io(&clouds, &config),
+        Providers::GeminiCli => Gemini::new()?.io(&clouds, &config),
+        Providers::OpenCode => OpenCode::new()?.io(&clouds, &config),
+        Providers::OpenClaw => OpenClaw::new()?.io(&clouds, &config),
         Providers::Codex => bail!("Codex requires payload argument, use codex_hook() instead"),
     }
 }
@@ -92,7 +105,8 @@ pub fn codex_hook(payload: &str) -> Result<()> {
         bail!("not authorized");
     }
 
-    let ret = LcCloud::new(&config, Providers::Codex).context("Unable to initialize Cloud API");
+    let ret =
+        LcCloud::new(config.clone(), Providers::Codex).context("Unable to initialize Cloud API");
 
     let cloud = match ret {
         Ok(v) => {
@@ -123,7 +137,7 @@ pub fn codex_hook(payload: &str) -> Result<()> {
     // It doesn't require a response, so we just send to cloud if audit_prompts is enabled
     if config.user.audit_prompts {
         debug!("Sending Codex notification to cloud");
-        if let Err(e) = cloud.notify(value) {
+        if let Err(e) = cloud.notify(&value) {
             error!("Unable to notify cloud ({e})");
         } else {
             debug!("Cloud notification sent successfully");

@@ -389,7 +389,8 @@ fn main() -> Result<()> {
     let mut is_uninstall_all = matches!(args.command, Some(Command::UninstallAll { .. }));
 
     if is_callback {
-        init_callback_logging()?;
+        //init_callback_logging()?;
+        init_logging(true)?;
     } else {
         init_logging(args.verbose)?;
     }
@@ -449,7 +450,9 @@ fn main() -> Result<()> {
                 println!();
                 println!("Debug log location: {}", get_debug_log_path()?.display());
                 println!();
-                println!("Note: Debug logs accumulate over time. Run 'viberails debug-clean' to remove old logs.");
+                println!(
+                    "Note: Debug logs accumulate over time. Run 'viberails debug-clean' to remove old logs."
+                );
             }
             Ok(())
         }

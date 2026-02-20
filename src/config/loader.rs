@@ -2,10 +2,7 @@
 use std::os::unix::fs::OpenOptionsExt;
 use std::{fs, io::Write, path::Path};
 
-use crate::{
-    cloud::lc_socket::edr_link_available,
-    tui::{ConfigEntry, ConfigView},
-};
+use crate::tui::{ConfigEntry, ConfigView};
 use anyhow::{Context, Result};
 use bon::Builder;
 use log::{debug, info};
@@ -43,7 +40,7 @@ pub struct JoinTeamArgs {
     pub url: String,
 }
 
-#[derive(Serialize, Deserialize, Builder)]
+#[derive(Serialize, Deserialize, Builder, Clone)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct UserConfig {
     pub fail_open: bool,
@@ -75,7 +72,7 @@ fn default_true() -> bool {
     true
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize, Clone)]
 pub struct LcOrg {
     pub oid: String,
     pub name: String,
@@ -101,7 +98,7 @@ impl Default for UserConfig {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
     pub user: UserConfig,
     pub install_id: String,
@@ -452,10 +449,6 @@ pub(crate) fn parse_team_url(url: &str) -> Result<String> {
 /// Returns: true if the user has completed team initialization or joined a team.
 #[must_use]
 pub fn is_authorized() -> bool {
-    if edr_link_available() {
-        return true;
-    }
-
     Config::load()
         .map(|config| config.org.authorized())
         .unwrap_or(false)

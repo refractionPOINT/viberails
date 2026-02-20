@@ -1,13 +1,44 @@
-use std::time::Instant;
+use std::{path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use log::{info, warn};
 use serde_json::Value;
 
+use crate::cloud::common::get_ppid;
+
 use super::CloudVerdict;
 
 /// Maximum body size accepted by the `lc_sensor` event socket (60 KB).
 pub(crate) const MAX_LC_SOCKET_BODY: usize = 60 * 1024;
+
+/// Timeout for the `lc_sensor` event socket I/O.
+const LC_SOCKET_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Build the HTTP request header and resolve the body bytes for the `lc_event` socket.
+///
+/// If `body` exceeds [`MAX_LC_SOCKET_BODY`] it is dropped (with a warning) and an
+/// empty slice is returned so only the metadata (ppid + `event_id`) is sent.
+///
+/// Returns `(header_string, body_bytes)`.
+fn build_http_request<'a>(ppid: u32, event_id: &str, body: &'a str) -> (String, &'a [u8]) {
+    let body_bytes: &[u8] = if body.len() > MAX_LC_SOCKET_BODY {
+        warn!(
+            "EDR event body too large ({} bytes), sending without body",
+            body.len()
+        );
+        &[]
+    } else {
+        body.as_bytes()
+    };
+
+    let header = format!(
+        "POST /event?ppid={ppid}&event_id={} HTTP/1.0\r\nContent-Length: {}\r\n\r\n",
+        urlencoding::encode(event_id),
+        body_bytes.len()
+    );
+
+    (header, body_bytes)
+}
 
 /// Return the path to the `LimaCharlie` EDR event socket, if it exists on disk.
 ///
@@ -50,31 +81,16 @@ pub(crate) fn post_to_lc_socket(
 ) -> Result<()> {
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
-    use std::time::Duration;
 
     let mut stream = UnixStream::connect(socket_path).context("connect to lc_event socket")?;
     stream
-        .set_write_timeout(Some(Duration::from_secs(5)))
+        .set_write_timeout(Some(LC_SOCKET_TIMEOUT))
         .context("set write timeout")?;
     stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
+        .set_read_timeout(Some(LC_SOCKET_TIMEOUT))
         .context("set read timeout")?;
 
-    let body_bytes: &[u8] = if body.len() > MAX_LC_SOCKET_BODY {
-        warn!(
-            "EDR event body too large ({} bytes), sending without body",
-            body.len()
-        );
-        &[]
-    } else {
-        body.as_bytes()
-    };
-
-    let header = format!(
-        "POST /event?ppid={ppid}&event_id={} HTTP/1.0\r\nContent-Length: {}\r\n\r\n",
-        urlencoding::encode(event_id),
-        body_bytes.len()
-    );
+    let (header, body_bytes) = build_http_request(ppid, event_id, body);
 
     stream
         .write_all(header.as_bytes())
@@ -174,8 +190,7 @@ pub(crate) fn post_to_lc_socket(
     }
     let sock = SocketGuard(raw);
 
-    // Set 5-second send/recv timeouts (DWORD milliseconds on Windows).
-    let timeout_ms: u32 = 5000;
+    let timeout_ms: u32 = LC_SOCKET_TIMEOUT.as_millis() as u32;
     // SAFETY: setting standard socket options with correct buffer and size.
     unsafe {
         setsockopt(
@@ -212,21 +227,7 @@ pub(crate) fn post_to_lc_socket(
         bail!("connect to lc_event socket failed");
     }
 
-    let body_bytes: &[u8] = if body.len() > MAX_LC_SOCKET_BODY {
-        warn!(
-            "EDR event body too large ({} bytes), sending without body",
-            body.len()
-        );
-        &[]
-    } else {
-        body.as_bytes()
-    };
-
-    let header = format!(
-        "POST /event?ppid={ppid}&event_id={} HTTP/1.0\r\nContent-Length: {}\r\n\r\n",
-        urlencoding::encode(event_id),
-        body_bytes.len()
-    );
+    let (header, body_bytes) = build_http_request(ppid, event_id, body);
 
     let header_bytes = header.as_bytes();
     // SAFETY: sending from a valid, immutable byte slice.
@@ -259,49 +260,55 @@ pub(crate) fn post_to_lc_socket(
     }
 }
 
-pub fn edr_link_available() -> bool {
-    get_lc_socket_path().is_some()
-}
-
-/// Forward an event to the local `LimaCharlie` EDR sensor via its event socket.
-/// Best-effort: failures are logged but never affect the main webhook flow.
-pub fn forward_to_edr(ppid: u32, event_id: &str, body: &str) {
-    let Some(socket_path) = get_lc_socket_path() else {
-        return;
-    };
-
-    let start = Instant::now();
-    let result = post_to_lc_socket(&socket_path, ppid, event_id, body);
-    let latency_ms = start.elapsed().as_millis();
-
-    match result {
-        Ok(()) => info!("EDR event forwarded via lc_event socket (rtt={latency_ms}ms)"),
-        Err(e) => warn!("Failed to forward to lc_event socket (rtt={latency_ms}ms): {e}"),
-    }
-}
-
 pub struct LcSocket {
-    ppid: Option<u32>,
+    ppid: u32,
+    socket_path: PathBuf,
 }
 
-#[allow(dead_code)]
 impl LcSocket {
-    pub fn new(ppid: Option<u32>) -> Self {
-        Self { ppid }
+    pub fn new() -> Result<Self> {
+        let Some(ppid) = get_ppid() else {
+            bail!("Unable to find parent process id");
+        };
+
+        let Some(socket_path) = get_lc_socket_path() else {
+            bail!("lc socket was not found");
+        };
+
+        Ok(Self { ppid, socket_path })
+    }
+
+    pub fn available() -> bool {
+        if let Some(p) = get_lc_socket_path() {
+            info!("{} exists", p.display());
+            true
+        } else {
+            warn!("lc socket is not available");
+            false
+        }
+    }
+
+    /// Forward an event to the local `LimaCharlie` EDR sensor via its event socket.
+    /// Best-effort: failures are logged but never affect the main webhook flow.
+    pub fn forward_to_edr(&self, event_id: &str, body: &str) {
+        let result = post_to_lc_socket(&self.socket_path, self.ppid, event_id, body);
+
+        match result {
+            Ok(()) => info!("EDR event forwarded via lc_event socket"),
+            Err(e) => warn!("Failed to forward to lc_event socket ({e})"),
+        }
     }
 }
 
 impl super::CloudTrait for LcSocket {
-    fn notify(&self, data: Value) -> Result<()> {
-        if let Some(ppid) = self.ppid
-            && let Ok(body) = serde_json::to_string(&data)
-        {
-            forward_to_edr(ppid, "viberails_notify", &body);
+    fn notify(&self, data: &Value) -> Result<()> {
+        if let Ok(body) = serde_json::to_string(&data) {
+            self.forward_to_edr("viberails_notify", &body);
         }
         Ok(())
     }
 
-    fn authorize(&self, data: Value) -> Result<CloudVerdict> {
+    fn authorize(&self, data: &Value) -> Result<CloudVerdict> {
         self.notify(data)?;
         Ok(CloudVerdict::Allow)
     }
