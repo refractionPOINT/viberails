@@ -389,8 +389,7 @@ fn main() -> Result<()> {
     let mut is_uninstall_all = matches!(args.command, Some(Command::UninstallAll { .. }));
 
     if is_callback {
-        //init_callback_logging()?;
-        init_logging(true)?;
+        init_callback_logging()?;
     } else {
         init_logging(args.verbose)?;
     }

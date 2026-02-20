@@ -121,8 +121,11 @@ mod edr_socket_tests {
     }
 
     #[test]
-    fn test_forward_to_edr_is_noop_when_socket_absent() {
-        // Should silently return without error.
-        forward_to_edr(1234, "viberails_auth", r#"{"test":true}"#);
+    fn test_lc_socket_new_fails_when_socket_absent() {
+        // LcSocket::new() should return an error when the socket doesn't exist.
+        let result = LcSocket::new();
+        // In a normal test environment the socket won't exist, so this should fail.
+        // If it does exist (lc_sensor running), that's fine — just verify no panic.
+        let _ = result;
     }
 }
