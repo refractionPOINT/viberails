@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
-bon = "3.8"
+bon = "3.9"
 clap = { version = "4.5", features = ["derive"] }
 colored = "3"
 crossterm = "0.29"
@@ -13,40 +13,45 @@ derive_more = { version = "2.1", features = ["display"] }
 dirs = "6.0"
 env_logger = "0.11"
 fs2 = "0.4"
-rand = "0.9"
 hostname = "0.4"
 libc = "0.2"
-sysinfo = { version = "0.38", default-features = false, features = ["system"] }
 log = "0.4"
 minreq = { version = "2.14", features = [
   "https-rustls-probe",
   "json-using-serde",
   "rustls"
 ] }
+rand = "0.9"
 ratatui = "0.30"
 rust-embed = { version = "8.11", features = ["debug-embed", "include-exclude"] }
 self-replace = "1.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
+sysinfo = { version = "0.38", default-features = false, features = ["system"] }
 tabled = "0.20"
-tempfile = "3.24"
+tempfile = "3.25"
 tiny_http = "0.12"
-toml = "0.9"
+toml = "1.0"
 tui-input = "0.15"
 url = "2.5"
 urlencoding = "2.1"
-uuid = { version = "1.20", features = ["v4"] }
+uuid = { version = "1.21", features = ["v4"] }
 whoami = "2.1"
 
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_System_Threading", "Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Networking_WinSock"] }
-
 [dev-dependencies]
-tempfile = "3.24"
+tempfile = "3.25"
 
 [build-dependencies]
 winres = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Networking_WinSock",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Threading"
+] }
 
 [lints.clippy]
 arithmetic_side_effects = "warn"

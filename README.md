@@ -31,6 +31,7 @@ AI coding assistants like Claude Code, Cursor, and Copilot are transforming how 
     - OpenAI Codex CLI
     - OpenCode
     - OpenClaw
+    - Copilot
 
 - **Zero Friction Setup** - Install in under 2 minutes with automatic tool detection
 
@@ -62,6 +63,7 @@ irm https://get.viberails.io/install.ps1 | iex
 > **Security Note:** We get it - piping curl to bash requires trust. You can
 > [review the install script](https://get.viberails.io/install.sh) before running,
 > or download binaries directly:
+>
 > - [Linux x64](https://get.viberails.io/viberails-linux-x64) | [Linux ARM64](https://get.viberails.io/viberails-linux-arm64)
 > - [macOS x64](https://get.viberails.io/viberails-macos-x64) | [macOS ARM64](https://get.viberails.io/viberails-macos-arm64)
 > - [Windows x64](https://get.viberails.io/viberails-windows-x64.exe) | [Windows ARM64](https://get.viberails.io/viberails-windows-arm64.exe)
@@ -69,6 +71,7 @@ irm https://get.viberails.io/install.ps1 | iex
 > Verify checksums via [release.json](https://get.viberails.io/release.json).
 
 This downloads Viberails and launches the interactive setup. You'll be prompted to:
+
 1. Select an OAuth provider (Google, Microsoft, or GitHub)
 2. Enter your team name
 3. Complete authentication in your browser
@@ -153,6 +156,7 @@ viberails show-config
 ```
 
 This displays your current configuration including:
+
 - **Fail Open** - Whether tools are approved locally when cloud is unreachable (default: true)
 - **Audit Tool Use** - Send tool calls to cloud for authorization (default: true)
 - **Audit Prompts** - Send prompts/chat to cloud for audit logging (default: true)
@@ -227,6 +231,7 @@ viberails debug --disable
 ```
 
 Debug logs include:
+
 - Full payload data from AI tools
 - Hook invocation details
 - Cloud API request/response information
@@ -237,11 +242,13 @@ Debug logs include:
 ### Common Issues
 
 **Hooks not triggering:**
+
 1. Run `viberails list` to verify hooks are installed
 2. Enable debug mode and check if logs are created when using the AI tool
 3. Check the regular log at `~/.local/share/viberails/viberails.log`
 
 **Events not reaching LimaCharlie:**
+
 1. Enable debug mode to see cloud API responses
 2. Verify your team URL with `viberails show-config`
 3. Check if `audit_tool_use` and `audit_prompts` are enabled
