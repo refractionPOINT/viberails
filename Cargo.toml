@@ -21,7 +21,7 @@ minreq = { version = "2.14", features = [
   "json-using-serde",
   "rustls"
 ] }
-rand = "0.9"
+rand = "0.10"
 ratatui = "0.30"
 rust-embed = { version = "8.11", features = ["debug-embed", "include-exclude"] }
 self-replace = "1.5"

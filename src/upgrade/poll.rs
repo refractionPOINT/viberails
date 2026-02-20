@@ -16,7 +16,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use fs2::FileExt;
 use log::{info, warn};
-use rand::Rng;
+use rand::RngExt;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tiny_http::StatusCode;
