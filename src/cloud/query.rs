@@ -8,6 +8,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::{
+    cloud::common::get_ppid,
     common::{PROJECT_VERSION, PROJECT_VERSION_HASH, display_authorize_help, user_agent},
     config::Config,
     providers::Providers,
@@ -90,29 +91,16 @@ struct CloudRequestMeta<'a> {
 struct CloudRequest<'a> {
     meta_data: CloudRequestMeta<'a>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    auth: Option<Value>,
+    auth: Option<&'a Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    notify: Option<Value>,
+    notify: Option<&'a Value>,
 }
 
-pub struct CloudQuery<'a> {
-    config: &'a Config,
+pub struct LcCloud {
+    config: Config,
     url: String,
     secret: String,
     provider: Providers,
-}
-
-fn get_ppid() -> Option<u32> {
-    use sysinfo::{ProcessRefreshKind, System, UpdateKind};
-
-    let pid = sysinfo::get_current_pid().ok()?;
-    let mut sys = System::new();
-    sys.refresh_processes_specifics(
-        sysinfo::ProcessesToUpdate::Some(&[pid]),
-        false,
-        ProcessRefreshKind::nothing().with_exe(UpdateKind::Never),
-    );
-    sys.process(pid)?.parent().map(sysinfo::Pid::as_u32)
 }
 
 fn mine_session_id(data: &Value) -> Option<String> {
@@ -183,8 +171,18 @@ impl<'a> CloudRequestMeta<'a> {
     }
 }
 
-impl<'a> CloudQuery<'a> {
-    pub fn new(config: &'a Config, provider: Providers) -> Result<Self> {
+impl super::CloudTrait for LcCloud {
+    fn notify(&self, data: &Value) -> Result<()> {
+        self.notify(data)
+    }
+
+    fn authorize(&self, data: &Value) -> Result<CloudVerdict> {
+        self.authorize(data)
+    }
+}
+
+impl LcCloud {
+    pub fn new(config: Config, provider: Providers) -> Result<Self> {
         //
         // bail if we're not actually yet authorized
         //
@@ -245,13 +243,13 @@ impl<'a> CloudQuery<'a> {
         Ok((parsed.to_string(), secret))
     }
 
-    pub fn notify(&self, data: Value) -> Result<()> {
+    pub fn notify(&self, data: &Value) -> Result<()> {
         debug!("Preparing notification request to cloud");
-        let session_id = mine_session_id(&data);
+        let session_id = mine_session_id(data);
         debug!("Session ID: {session_id:?}");
 
         let meta_data = CloudRequestMeta::new(
-            self.config,
+            &self.config,
             session_id,
             &self.provider,
             CloudQueryType::Notify,
@@ -296,13 +294,13 @@ impl<'a> CloudQuery<'a> {
         Ok(())
     }
 
-    pub fn authorize(&self, data: Value) -> Result<CloudVerdict> {
+    pub fn authorize(&self, data: &Value) -> Result<CloudVerdict> {
         debug!("Preparing authorization request to cloud");
-        let session_id = mine_session_id(&data);
+        let session_id = mine_session_id(data);
         debug!("Session ID: {session_id:?}");
 
         let meta_data = CloudRequestMeta::new(
-            self.config,
+            &self.config,
             session_id,
             &self.provider,
             CloudQueryType::Auth,
@@ -369,17 +367,5 @@ impl<'a> CloudQuery<'a> {
         };
 
         Ok(verdict)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_get_ppid_returns_some() {
-        let ppid = get_ppid();
-        assert!(ppid.is_some(), "get_ppid() should return Some on Unix/Windows");
-        assert!(ppid.is_some_and(|p| p > 0), "ppid should be > 0");
     }
 }

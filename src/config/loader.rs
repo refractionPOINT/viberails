@@ -40,7 +40,7 @@ pub struct JoinTeamArgs {
     pub url: String,
 }
 
-#[derive(Serialize, Deserialize, Builder)]
+#[derive(Serialize, Deserialize, Builder, Clone)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct UserConfig {
     pub fail_open: bool,
@@ -72,7 +72,7 @@ fn default_true() -> bool {
     true
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize, Clone)]
 pub struct LcOrg {
     pub oid: String,
     pub name: String,
@@ -98,7 +98,7 @@ impl Default for UserConfig {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
     pub user: UserConfig,
     pub install_id: String,

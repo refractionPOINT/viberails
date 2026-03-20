@@ -1,10 +1,8 @@
-use std::time::Instant;
-
 use anyhow::{Context, Result, bail};
 use log::{debug, error, info};
 
 use crate::{
-    cloud::query::CloudQuery,
+    cloud::{CloudTrait, LcCloud, lc_socket::LcSocket},
     common::PROJECT_NAME,
     config::Config,
     providers::{
@@ -12,6 +10,48 @@ use crate::{
         gemini::Gemini, log_payload_structure, openclaw::OpenClaw, opencode::OpenCode,
     },
 };
+
+/// Initialize the cloud stack (local EDR socket + remote cloud API).
+///
+/// Returns the list of cloud backends to use, or an error if the cloud API
+/// fails to initialize and `fail_open` is disabled.
+fn init_cloud_stack(config: &Config, provider: Providers) -> Result<Vec<Box<dyn CloudTrait>>> {
+    let mut clouds: Vec<Box<dyn CloudTrait>> = Vec::new();
+
+    if let Ok(socket) = LcSocket::new() {
+        info!("Using lc_socket");
+        clouds.push(Box::new(socket));
+    }
+
+    if config.org.authorized() {
+        debug!("Organization authorized: oid={}", config.org.oid);
+
+        let ret = LcCloud::new(config.clone(), provider).context("Unable to initialize Cloud API");
+
+        match ret {
+            Ok(v) => {
+                debug!("Cloud API initialized successfully");
+                clouds.push(Box::new(v));
+            }
+            Err(e) => {
+                error!("Unable to init cloud {e}");
+                if config.user.fail_open {
+                    debug!("fail_open=true, allowing despite cloud init failure");
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+    } else {
+        debug!(
+            "Organization not authorized (oid={}, url={})",
+            config.org.oid, config.org.url
+        );
+    }
+
+    info!("cloud providers: {}", clouds.len());
+    Ok(clouds)
+}
 
 /// Main hook handler for providers that read from stdin.
 ///
@@ -31,42 +71,22 @@ pub fn hook(provider: Providers) -> Result<()> {
         config.user.debug
     );
 
-    if !config.org.authorized() {
-        debug!(
-            "Organization not authorized (oid={}, url={})",
-            config.org.oid, config.org.url
-        );
-        bail!("not authorized");
+    let clouds = init_cloud_stack(&config, provider)?;
+
+    //
+    // fast path, no configuration found, just return success
+    //
+    if clouds.is_empty() {
+        return Ok(());
     }
-    debug!("Organization authorized: oid={}", config.org.oid);
 
-    // This'll fail if we're not authorized
-    let ret = CloudQuery::new(&config, provider).context("Unable to initialize Cloud API");
-
-    // Let the user decide to fail open if not properly configured
-    let cloud = match ret {
-        Ok(v) => {
-            debug!("Cloud API initialized successfully");
-            v
-        }
-        Err(e) => {
-            error!("Unable to init cloud {e}");
-            if config.user.fail_open {
-                debug!("fail_open=true, allowing despite cloud init failure");
-                return Ok(());
-            }
-            return Err(e);
-        }
-    };
-
-    debug!("Delegating to provider-specific IO handler");
     match provider {
-        Providers::ClaudeCode => ClaudeCode::new()?.io(&cloud, &config),
-        Providers::Cursor => Cursor::new()?.io(&cloud, &config),
-        Providers::GeminiCli => Gemini::new()?.io(&cloud, &config),
-        Providers::OpenCode => OpenCode::new()?.io(&cloud, &config),
-        Providers::OpenClaw => OpenClaw::new()?.io(&cloud, &config),
-        Providers::Copilot => Copilot::new()?.io(&cloud, &config),
+        Providers::ClaudeCode => ClaudeCode::new()?.io(&clouds, &config),
+        Providers::Cursor => Cursor::new()?.io(&clouds, &config),
+        Providers::GeminiCli => Gemini::new()?.io(&clouds, &config),
+        Providers::OpenCode => OpenCode::new()?.io(&clouds, &config),
+        Providers::OpenClaw => OpenClaw::new()?.io(&clouds, &config),
+        Providers::Copilot => Copilot::new()?.io(&clouds, &config),
         Providers::Codex => bail!("Codex requires payload argument, use codex_hook() instead"),
     }
 }
@@ -88,27 +108,11 @@ pub fn codex_hook(payload: &str) -> Result<()> {
         config.user.audit_prompts, config.user.fail_open
     );
 
-    if !config.org.authorized() {
-        debug!("Organization not authorized, failing");
-        bail!("not authorized");
+    let clouds = init_cloud_stack(&config, Providers::Codex)?;
+
+    if clouds.is_empty() {
+        return Ok(());
     }
-
-    let ret = CloudQuery::new(&config, Providers::Codex).context("Unable to initialize Cloud API");
-
-    let cloud = match ret {
-        Ok(v) => {
-            debug!("Cloud API initialized successfully");
-            v
-        }
-        Err(e) => {
-            error!("Unable to init cloud {e}");
-            if config.user.fail_open {
-                debug!("fail_open=true, allowing despite cloud init failure");
-                return Ok(());
-            }
-            return Err(e);
-        }
-    };
 
     info!("Received JSON payload (length={})", payload.len());
 
@@ -118,23 +122,22 @@ pub fn codex_hook(payload: &str) -> Result<()> {
     // Log the raw payload structure for debugging and format discovery
     log_payload_structure(&value);
 
-    let start = Instant::now();
-
     // Codex notify is for notifications only (e.g., agent-turn-complete)
     // It doesn't require a response, so we just send to cloud if audit_prompts is enabled
     if config.user.audit_prompts {
         debug!("Sending Codex notification to cloud");
-        if let Err(e) = cloud.notify(value) {
-            error!("Unable to notify cloud ({e})");
-        } else {
-            debug!("Cloud notification sent successfully");
+        for c in &clouds {
+            if let Err(e) = c.notify(&value) {
+                error!("Unable to notify cloud ({e})");
+            } else {
+                debug!("Cloud notification sent successfully");
+            }
         }
     } else {
         info!("audit_prompts disabled, skipping cloud notification");
     }
 
-    let duration = start.elapsed().as_millis();
-    info!("Codex hook completed in {duration}ms");
+    info!("Codex hook completed");
 
     Ok(())
 }

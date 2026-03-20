@@ -454,7 +454,9 @@ fn main() -> Result<()> {
                 println!();
                 println!("Debug log location: {}", get_debug_log_path()?.display());
                 println!();
-                println!("Note: Debug logs accumulate over time. Run 'viberails debug-clean' to remove old logs.");
+                println!(
+                    "Note: Debug logs accumulate over time. Run 'viberails debug-clean' to remove old logs."
+                );
             }
             Ok(())
         }

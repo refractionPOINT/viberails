@@ -21,6 +21,7 @@ enum SafeRemoveResult {
 }
 
 use crate::{
+    cloud::lc_socket::LcSocket,
     common::{
         EXECUTABLE_NAME, PROJECT_NAME, display_authorize_help, print_header,
         project_config_dir_path, project_data_dir_path, validated_binary_dir,
@@ -56,7 +57,13 @@ fn parse_provider_selection(
         // Select all appropriate providers based on mode
         let selected: Vec<&'static str> = discoveries
             .iter()
-            .filter(|d| if is_uninstall { d.hooks_installed } else { d.detected })
+            .filter(|d| {
+                if is_uninstall {
+                    d.hooks_installed
+                } else {
+                    d.detected
+                }
+            })
             .map(|d| d.id)
             .collect();
 
@@ -389,8 +396,7 @@ fn uninstall_binary(dst: &Path) -> Result<()> {
         self_replace::self_delete_at(dst)
             .with_context(|| format!("Unable to self-delete {}", dst.display()))?;
     } else {
-        fs::remove_file(dst)
-            .with_context(|| format!("Unable to delete {}", dst.display()))?;
+        fs::remove_file(dst).with_context(|| format!("Unable to delete {}", dst.display()))?;
     }
 
     info!("{} was deleted", dst.display());
@@ -596,7 +602,7 @@ pub fn install(providers: Option<&str>) -> Result<()> {
     // Make sure we're autorized, otherwise it'll fail silently
     //
     let config = Config::load()?;
-    if !config.org.authorized() {
+    if !LcSocket::available() && !config.org.authorized() {
         display_authorize_help();
         bail!("Not Authorized");
     }
@@ -736,10 +742,7 @@ pub fn uninstall_all() -> Result<()> {
 
     // Discover all providers and uninstall hooks from those that have them installed
     let discoveries = registry.discover_all_with_hooks_check();
-    let providers_with_hooks: Vec<_> = discoveries
-        .iter()
-        .filter(|d| d.hooks_installed)
-        .collect();
+    let providers_with_hooks: Vec<_> = discoveries.iter().filter(|d| d.hooks_installed).collect();
 
     if providers_with_hooks.is_empty() {
         println!("No hooks are currently installed.");
@@ -792,7 +795,9 @@ pub fn uninstall_all() -> Result<()> {
         }
         Err(e) => {
             error!("Unable to determine binary location: {e}");
-            error!("Skipping binary and upgrade file cleanup, continuing with config/data removal.");
+            error!(
+                "Skipping binary and upgrade file cleanup, continuing with config/data removal."
+            );
             success = false;
         }
     }
@@ -817,7 +822,9 @@ pub fn uninstall_all() -> Result<()> {
         println!("\n{}", "Full cleanup complete.".green());
         Ok(())
     } else {
-        Err(anyhow!("Uninstall had some failures. See logs for details."))
+        Err(anyhow!(
+            "Uninstall had some failures. See logs for details."
+        ))
     }
 }
 
@@ -1323,7 +1330,10 @@ mod tests {
 
         let result = uninstall_config();
         assert!(result.is_ok());
-        assert!(!config_dir2.exists(), "uninstall_config should remove existing dir");
+        assert!(
+            !config_dir2.exists(),
+            "uninstall_config should remove existing dir"
+        );
 
         unsafe { std::env::remove_var("VIBERAILS_CONFIG_DIR") };
     }
@@ -1353,7 +1363,10 @@ mod tests {
 
         let result = uninstall_data_dir();
         assert!(result.is_ok());
-        assert!(!data_dir2.exists(), "uninstall_data_dir should remove existing dir");
+        assert!(
+            !data_dir2.exists(),
+            "uninstall_data_dir should remove existing dir"
+        );
 
         unsafe { std::env::remove_var("VIBERAILS_DATA_DIR") };
     }
@@ -1440,13 +1453,11 @@ mod tests {
 
     #[test]
     fn test_check_hook_results_multiple_providers_all_success() {
-        let claude_results = vec![
-            InstallResult {
-                provider_name: "Claude Code".to_string(),
-                hooktype: "pre-tool-use",
-                result: Ok(()),
-            },
-        ];
+        let claude_results = vec![InstallResult {
+            provider_name: "Claude Code".to_string(),
+            hooktype: "pre-tool-use",
+            result: Ok(()),
+        }];
 
         let cursor_results = vec![
             InstallResult {

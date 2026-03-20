@@ -1,6 +1,0 @@
-#!/bin/sh
-
-tput reset
-export RUST_LOG=info
-export RUST_BACKTRACE=1
-cargo run --quiet -- -v $*

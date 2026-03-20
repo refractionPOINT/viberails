@@ -20,14 +20,14 @@ pub mod registry;
 pub mod selector;
 
 // Re-exports for public API (may be used by external code or future extensions)
-#[allow(unused_imports)]
-pub use discovery::{DiscoveryResult, ProviderDiscovery, ProviderFactory};
+#[cfg(test)]
+pub use discovery::ProviderDiscovery;
 use log::{debug, error, info, warn};
 pub use registry::ProviderRegistry;
 pub use selector::{select_providers, select_providers_for_uninstall};
 
 use crate::{
-    cloud::query::{CloudQuery, CloudVerdict},
+    cloud::{CloudTrait, CloudVerdict},
     common::PROJECT_NAME,
     config::Config,
 };
@@ -249,8 +249,8 @@ pub trait LLmProviderTrait: Display {
                 Ok(())
             }
             HookDecision::Block => {
-                let resp_string = serde_json::to_string(&answer)
-                    .context("Failed to serialize hook response")?;
+                let resp_string =
+                    serde_json::to_string(&answer).context("Failed to serialize hook response")?;
 
                 info!("decision json: {resp_string}");
 
@@ -264,27 +264,44 @@ pub trait LLmProviderTrait: Display {
         }
     }
 
-    fn authorize_tool(&self, cloud: &CloudQuery, config: &Config, value: Value) -> HookAnswer {
+    fn notify_all(&self, clouds: &Vec<Box<dyn CloudTrait>>, value: Value) {
+        for c in clouds {
+            if let Err(e) = c.notify(&value) {
+                error!("Unable to notify cloud ({e})");
+            } else {
+                debug!("Cloud notification sent successfully");
+            }
+        }
+    }
+
+    fn authorize_tool(
+        &self,
+        clouds: &Vec<Box<dyn CloudTrait>>,
+        config: &Config,
+        value: Value,
+    ) -> HookAnswer {
         //
         // Do we fail-open?
         //
-        match cloud.authorize(value) {
-            Ok(CloudVerdict::Allow) => HookAnswer::approve(),
-            Ok(CloudVerdict::Deny(r)) => {
-                warn!("Deny reason: {r}");
-                HookAnswer::block(r)
-            }
-            Err(e) => {
-                error!("cloud failed ({e})");
+        for c in clouds {
+            match c.authorize(&value) {
+                Ok(CloudVerdict::Allow) => {}
+                Ok(CloudVerdict::Deny(r)) => {
+                    warn!("Deny reason: {r}");
+                    return HookAnswer::block(r);
+                }
+                Err(e) => {
+                    error!("cloud failed ({e})");
 
-                if config.user.fail_open {
-                    HookAnswer::approve()
-                } else {
-                    let msg = format!("{PROJECT_NAME} cloud failure ({e})");
-                    HookAnswer::block(msg)
+                    if !config.user.fail_open {
+                        let msg = format!("{PROJECT_NAME} cloud failure ({e})");
+                        return HookAnswer::block(msg);
+                    }
                 }
             }
         }
+
+        HookAnswer::approve()
     }
 
     fn is_tool_use(&self, value: &Value) -> bool {
@@ -344,7 +361,7 @@ pub trait LLmProviderTrait: Display {
 
         value
     }
-    fn io(&self, cloud: &CloudQuery, config: &Config) -> Result<()> {
+    fn io(&self, clouds: &Vec<Box<dyn CloudTrait>>, config: &Config) -> Result<()> {
         //
         // This'll fail if we're not authorized
         //
@@ -390,7 +407,7 @@ pub trait LLmProviderTrait: Display {
             // D&R Path - only call cloud if audit_tool_use is enabled
             let answer = if config.user.audit_tool_use {
                 debug!("Sending tool_use to cloud for authorization");
-                self.authorize_tool(cloud, config, value)
+                self.authorize_tool(clouds, config, value)
             } else {
                 info!("audit_tool_use disabled, approving locally");
                 HookAnswer::approve()
@@ -411,11 +428,7 @@ pub trait LLmProviderTrait: Display {
                 // If so, enrich the payload with the actual response from the transcript
                 let enriched_value = self.enrich_stop_event(value);
 
-                if let Err(e) = cloud.notify(enriched_value) {
-                    error!("Unable to notify cloud ({e})");
-                } else {
-                    debug!("Cloud notification sent successfully");
-                }
+                self.notify_all(clouds, enriched_value);
             } else {
                 info!("audit_prompts disabled, skipping cloud notification");
             }
