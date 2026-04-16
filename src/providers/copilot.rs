@@ -1,6 +1,9 @@
 use std::fmt::Display;
-use std::process::Command;
-use std::{env, fs, io::Write, path::PathBuf};
+use std::{
+    env, fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, anyhow};
 use log::{debug, info, warn};
@@ -124,19 +127,17 @@ impl Copilot {
         }
     }
 
-    /// Find the git repository root from the current working directory.
+    /// Find the git repository root by walking parent directories for a `.git` entry.
     /// Returns None if not inside a git repository.
+    ///
+    /// `.git` may be a directory (normal repo) or a file (submodule / linked worktree);
+    /// either one marks the working tree root, which is what we want.
     fn find_git_root() -> Option<PathBuf> {
-        Command::new("git")
-            .args(["rev-parse", "--show-toplevel"])
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .and_then(|output| {
-                String::from_utf8(output.stdout)
-                    .ok()
-                    .map(|s| PathBuf::from(s.trim()))
-            })
+        let start = env::current_dir().ok()?;
+        start
+            .ancestors()
+            .find(|dir| dir.join(".git").exists())
+            .map(Path::to_path_buf)
     }
 
     /// Ensure the hooks file exists, creating it with default structure if needed.
