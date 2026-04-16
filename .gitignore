@@ -27,3 +27,5 @@ go.work.sum
 # rust
 /target
 /Cargo.lock
+/.zed
+/.github/hooks/

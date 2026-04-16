@@ -113,6 +113,19 @@ Viberails automatically detects which AI tools you have installed and lets you c
 
 **Available provider IDs:** `claude-code`, `copilot`, `cursor`, `gemini-cli`, `codex`, `opencode`, `openclaw`
 
+#### GitHub Copilot CLI: per-project hooks
+
+Unlike the other supported tools — which install a single hook configuration in your home directory that applies everywhere — **GitHub Copilot CLI hooks are per-repository**. Copilot loads hooks from `.github/hooks/hooks.json` at the root of the current working directory (typically your git repository), so a single global install is not possible.
+
+What this means in practice:
+
+- **Run `viberails install` from inside each repository** where you want Copilot to be hooked. The hook file is written to `<repo>/.github/hooks/hooks.json`; if you're not inside a git repo, Viberails falls back to the current directory.
+- **Commit the hooks file** if you want teammates and the Copilot cloud agent to pick up the same policy. The Copilot cloud agent reads `.github/hooks/` from the default branch.
+- **`viberails list` and `viberails uninstall-hooks` are also directory-scoped** for Copilot — run them from the repo whose hooks you want to inspect or remove.
+- **A fresh clone has no Viberails hook** until you either re-run `viberails install` in it or the file was committed to the repo.
+
+All other providers (Claude Code, Cursor, Gemini CLI, Codex, OpenCode, OpenClaw) remain global and only need to be installed once per machine.
+
 ### 3. Add Your Team
 
 After setup, you'll receive a command to share with your colleagues. They can join with a single command:
