@@ -126,6 +126,12 @@ What this means in practice:
 
 All other providers (Claude Code, Cursor, Gemini CLI, Codex, OpenCode, OpenClaw) remain global and only need to be installed once per machine.
 
+#### OpenCode: plugin file
+
+OpenCode has no shell-command hook — it loads plugins as JavaScript modules from disk. Viberails therefore installs a small plugin at `~/.config/opencode/plugin/viberails.js` (or `$XDG_CONFIG_HOME/opencode/plugin/viberails.js`) instead of editing `opencode.json`. The plugin forwards tool calls to `viberails opencode-callback` and denies a call by throwing, which surfaces the policy reason to the model.
+
+`viberails uninstall-hooks` removes that file and leaves any other plugins in the directory untouched.
+
 ### 3. Add Your Team
 
 After setup, you'll receive a command to share with your colleagues. They can join with a single command:

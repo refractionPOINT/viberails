@@ -39,6 +39,26 @@ All notable changes to viberails will be documented in this file.
   - `tests/e2e/uninstall_all.bats` - Tests for complete cleanup command
   - `tests/e2e/uninstall_hooks.bats` - Tests for hooks-only removal and backward compatibility
 
+### Fixed
+
+- **OpenCode provider now works.** It was registered and offered in the installer, but
+  installing it had no effect: nothing ever invoked `viberails opencode-callback`.
+  - Wrote hooks into an `opencode.json` key (`plugins`, an object of `{enabled, command}`)
+    that OpenCode does not read. The real config key is `plugin`, an array, and OpenCode
+    has no shell-command hook at all — plugins are JavaScript modules loaded from disk.
+  - Resolved the config directory with `dirs::config_dir()`, which is
+    `~/Library/Application Support` on macOS and `%APPDATA%` on Windows. OpenCode reads
+    `$XDG_CONFIG_HOME/opencode`, falling back to `~/.config/opencode`, on every platform.
+    OpenCode was therefore reported as "not detected" on macOS even when installed.
+  - Now installs a generated plugin at `~/.config/opencode/plugin/<name>.js` and makes no
+    changes to `opencode.json`. The plugin forwards tool calls to the callback binary over
+    the same stdin/stdout protocol as every other provider, and denies a call by throwing,
+    which surfaces the policy reason to the model.
+  - `list` reports the binary path read back out of the installed plugin, so a plugin left
+    pointing at a moved binary shows as stale rather than healthy.
+  - `uninstall-hooks` removes only a plugin viberails generated, leaving any other file at
+    that path — and any other plugin in the directory — untouched.
+
 ### Security
 
 - Added symlink attack protection in uninstall operations
