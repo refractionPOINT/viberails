@@ -240,7 +240,7 @@ fn check_hook_results(results_per_provider: &[(&str, &[InstallResult])]) -> bool
 ///   - `path`: Path to the file to remove
 ///
 /// Returns: `Ok(())` on success, Err on failure
-fn safe_remove_file(path: &Path) -> Result<()> {
+pub(crate) fn safe_remove_file(path: &Path) -> Result<()> {
     info!("Safe remove file: {}", path.display());
 
     // Use symlink_metadata to check the path itself, not the target

@@ -2,6 +2,7 @@ mod hook;
 pub use hook::{codex_hook, hook};
 
 mod install;
+pub(crate) use install::safe_remove_file;
 pub use install::binary_location;
 pub use install::install;
 pub use install::install_binary;

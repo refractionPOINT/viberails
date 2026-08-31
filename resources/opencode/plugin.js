@@ -53,14 +53,22 @@ function callCallback(payload, timeoutMs) {
       resolve(value);
     };
 
-    const timer = setTimeout(() => {
-      log(`Callback timed out after ${timeoutMs}ms`);
+    // Stop waiting on a child that can no longer answer. Killing it before
+    // finishing matters because finish() clears the timeout: without the kill,
+    // a child still blocked on a stdin that was never closed would be left
+    // running for the rest of the session with nothing left to reap it.
+    const abandon = () => {
       try {
         child.kill("SIGKILL");
       } catch {
         /* already gone */
       }
       finish(null);
+    };
+
+    const timer = setTimeout(() => {
+      log(`Callback timed out after ${timeoutMs}ms`);
+      abandon();
     }, timeoutMs);
 
     // Decode as UTF-8 so a multi-byte character split across two chunks is not
@@ -106,12 +114,26 @@ function callCallback(payload, timeoutMs) {
       }
     });
 
+    // Stream errors arrive as 'error' events, not as exceptions from write(),
+    // and an 'error' event with no listener is raised as an uncaught exception
+    // in the host process -- the try/catch below cannot see it. The callback
+    // exits without draining stdin on ordinary paths (an unauthorized
+    // organization, a config that fails to load, a cloud that fails to
+    // initialize), each of which makes the write fail with EPIPE, so these
+    // listeners are load-bearing rather than defensive.
+    child.stdin.on("error", (err) => {
+      log(`Failed to send payload: ${err.message}`);
+      abandon();
+    });
+    child.stdout.on("error", (err) => log(`Read error: ${err.message}`));
+    child.stderr.on("error", (err) => log(`Read error: ${err.message}`));
+
     try {
       child.stdin.write(`${JSON.stringify(payload)}\n`);
       child.stdin.end();
     } catch (err) {
       log(`Failed to send payload: ${err.message}`);
-      finish(null);
+      abandon();
     }
   });
 }

@@ -130,7 +130,9 @@ All other providers (Claude Code, Cursor, Gemini CLI, Codex, OpenCode, OpenClaw)
 
 OpenCode has no shell-command hook — it loads plugins as JavaScript modules from disk. Viberails therefore installs a small plugin at `~/.config/opencode/plugin/viberails.js` (or `$XDG_CONFIG_HOME/opencode/plugin/viberails.js`) instead of editing `opencode.json`. The plugin forwards tool calls to `viberails opencode-callback` and denies a call by throwing, which surfaces the policy reason to the model.
 
-`viberails uninstall-hooks` removes that file and leaves any other plugins in the directory untouched.
+`viberails uninstall-hooks` removes that file and leaves any other plugins in the directory untouched. If some other file already occupies that name, viberails will not overwrite, list or delete it — `install` reports the conflict instead.
+
+Note that `OPENCODE_CONFIG` does not move the plugin: it points at a config *file* OpenCode merges, while plugins are only ever loaded from the config directory (`OPENCODE_CONFIG_DIR` is read as well, but the standard directory above is always scanned, so installing there is enough).
 
 ### 3. Add Your Team
 
