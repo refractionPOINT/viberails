@@ -269,27 +269,34 @@ assert_exit_code() {
 wait_for_port() {
     local port="$1"
     local timeout_secs="${2:-10}"
-    local deadline=$((SECONDS + timeout_secs))
 
     local py
     py="$(get_python_cmd)" || return 1
 
-    while [[ $SECONDS -lt $deadline ]]; do
-        if "$py" -c "
-import socket, sys
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.settimeout(0.5)
-try:
-    s.connect(('127.0.0.1', int(sys.argv[1])))
-    s.close()
-except Exception:
-    sys.exit(1)
-" "$port" 2>/dev/null; then
-            return 0
-        fi
-        sleep 0.2
-    done
-    return 1
+    # Poll inside a single interpreter rather than spawning one per probe.
+    # Interpreter startup is free on Linux but costs the best part of a second
+    # on a cold macOS runner, where a probe-per-process loop spent most of the
+    # budget starting Python instead of waiting for the port -- while the
+    # server it was waiting for was paying that same cold start.
+    "$py" -c "
+import socket, sys, time
+
+port = int(sys.argv[1])
+deadline = time.monotonic() + float(sys.argv[2])
+
+while time.monotonic() < deadline:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(0.5)
+    try:
+        s.connect(('127.0.0.1', port))
+        sys.exit(0)
+    except OSError:
+        time.sleep(0.1)
+    finally:
+        s.close()
+
+sys.exit(1)
+" "$port" "$timeout_secs" 2>/dev/null
 }
 
 # Start a local mock hook server that captures one JSON request body.
@@ -317,9 +324,24 @@ start_mock_hook_server() {
         >"$log_file" 2>&1 &
     MOCK_SERVER_PID=$!
 
-    # Actively poll until the server accepts TCP connections (10s timeout).
-    if ! wait_for_port "$port" 10; then
-        echo "Mock hook server failed to start within 10s (log follows):" >&2
+    # Actively poll until the server accepts TCP connections. The budget is
+    # generous because it is only ever spent on failure, and a cold macOS
+    # runner can take seconds just to start the interpreter.
+    local startup_timeout=30
+
+    if ! wait_for_port "$port" "$startup_timeout"; then
+        # Distinguish "died on startup" from "still not listening": with only
+        # the server log to go on, a silent failure is indistinguishable from a
+        # slow one, and the log is empty in exactly the case that matters.
+        if kill -0 "$MOCK_SERVER_PID" 2>/dev/null; then
+            echo "Mock hook server (pid ${MOCK_SERVER_PID}) is running but not accepting" \
+                "connections on port ${port} after ${startup_timeout}s" >&2
+        else
+            echo "Mock hook server (pid ${MOCK_SERVER_PID}) exited before listening on" \
+                "port ${port}" >&2
+        fi
+
+        echo "server log follows:" >&2
         cat "$log_file" >&2 2>/dev/null || true
         return 1
     fi
