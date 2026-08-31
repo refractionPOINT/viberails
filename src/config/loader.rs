@@ -449,9 +449,7 @@ pub(crate) fn parse_team_url(url: &str) -> Result<String> {
 /// Returns: true if the user has completed team initialization or joined a team.
 #[must_use]
 pub fn is_authorized() -> bool {
-    Config::load()
-        .map(|config| config.org.authorized())
-        .unwrap_or(false)
+    Config::load().is_ok_and(|config| config.org.authorized())
 }
 
 /// Enable or disable debug payload logging mode.
@@ -499,9 +497,8 @@ pub fn set_debug_mode(enable: bool) -> Result<()> {
 /// Returns: true if auto-upgrade is enabled (default), false if disabled
 #[must_use]
 pub fn is_auto_upgrade_enabled() -> bool {
-    Config::load()
-        .map(|config| config.user.auto_upgrade)
-        .unwrap_or(true) // Default to enabled if config can't be loaded
+    // Default to enabled if config can't be loaded
+    Config::load().map_or(true, |config| config.user.auto_upgrade)
 }
 
 /// Get the path to the debug log directory.
