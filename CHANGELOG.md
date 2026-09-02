@@ -39,6 +39,43 @@ All notable changes to viberails will be documented in this file.
   - `tests/e2e/uninstall_all.bats` - Tests for complete cleanup command
   - `tests/e2e/uninstall_hooks.bats` - Tests for hooks-only removal and backward compatibility
 
+### Fixed
+
+- **OpenCode provider now works.** It was registered and offered in the installer, but
+  installing it had no effect: nothing ever invoked `viberails opencode-callback`.
+  - Wrote hooks into an `opencode.json` key (`plugins`, an object of `{enabled, command}`)
+    that OpenCode does not read. The real config key is `plugin`, an array, and OpenCode
+    has no shell-command hook at all — plugins are JavaScript modules loaded from disk.
+  - Resolved the config directory with `dirs::config_dir()`, which is
+    `~/Library/Application Support` on macOS and `%APPDATA%` on Windows. OpenCode reads
+    `$XDG_CONFIG_HOME/opencode`, falling back to `~/.config/opencode`, on every platform.
+    OpenCode was therefore reported as "not detected" on macOS even when installed.
+  - Now installs a generated plugin at `~/.config/opencode/plugin/<name>.js` and makes no
+    changes to `opencode.json`. The plugin forwards tool calls to the callback binary over
+    the same stdin/stdout protocol as every other provider, and denies a call by throwing,
+    which surfaces the policy reason to the model.
+  - `list` reports the binary path read back out of the installed plugin, so a plugin left
+    pointing at a moved binary shows as stale rather than healthy.
+  - `install`, `list` and `uninstall-hooks` all act only on a plugin viberails generated:
+    any other file at that path is neither claimed, overwritten nor deleted, and any other
+    plugin in the directory is left alone.
+  - `OPENCODE_CONFIG` is no longer consulted. It names a config *file* that OpenCode merges
+    and never moves plugin discovery, so installing beside it reported success while
+    enforcing nothing. The plugin now always goes to the directory OpenCode globs.
+  - The plugin no longer raises an uncaught exception inside OpenCode when the callback
+    exits before reading stdin — which is what it does whenever the organization is
+    unauthorized or the cloud cannot be reached. That EPIPE arrives as a stream `error`
+    event, which a `try`/`catch` around the write cannot see.
+  - Installing removes the obsolete `plugins` entry earlier versions wrote into
+    `opencode.json`. Only that entry is touched, and never a config we cannot parse.
+
+- **Primer D&R rules can now match OpenCode tool calls.** Every shipped rule compared
+  `tool_name` against Claude Code's capitalized spelling (`Write`) and read arguments from
+  snake_case keys (`tool_input/file_path`); OpenCode reports `write` and `tool_input/filePath`,
+  so none of them could ever fire for it. The rules now match either spelling.
+  - `vr-hook-config-tamper` watches the OpenCode plugin file rather than `opencode.json`,
+    which viberails no longer writes: deleting the plugin is what disables enforcement.
+
 ### Security
 
 - Added symlink attack protection in uninstall operations

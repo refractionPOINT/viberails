@@ -10,22 +10,55 @@ use serde_json::Value;
 use crate::cloud::lc_api::DRRule;
 
 // === Helper functions for rule generation ===
+//
+// The `cc_*` helpers cover every provider that reports a tool call as
+// `tool_name` + `tool_input` — Claude Code and `OpenCode` both do. The two
+// disagree on spelling, and the rules have to match either:
+//
+//   - tool names: Claude Code capitalizes (`Write`), `OpenCode` does not
+//     (`write`), and D&R string comparison is case sensitive.
+//   - argument keys: Claude Code uses snake_case (`file_path`), `OpenCode`
+//     camelCase (`filePath`). `command` and `url` happen to agree.
+//
+// So each helper emits both spellings. The alternative — a parallel set of
+// per-provider rule builders wired into all eleven rules — is the same
+// coverage with eleven times the surface to keep in sync.
 
-/// Generate Claude Code file path contains rules
+/// Installed binary, as it appears in a tool argument.
+/// Keep in sync with `hooks::binary_location`.
+const BINARY_PATH: &str = concat!(".local/bin/", env!("CARGO_PKG_NAME"));
+
+/// The `OpenCode` plugin file, which is what enforces policy for that provider
+/// — deleting or editing it disables enforcement, so it is what needs watching.
+/// Keep in sync with `providers::opencode`.
+const OPENCODE_PLUGIN_PATH: &str =
+    concat!(".config/opencode/plugin/", env!("CARGO_PKG_NAME"), ".js");
+
+/// Argument keys holding a file path, across the providers that report
+/// `tool_input`.
+const FILE_PATH_KEYS: &[&str] = &[
+    "event/auth/tool_input/file_path",
+    "event/auth/tool_input/filePath",
+];
+
+/// Generate file path contains rules (Claude Code and `OpenCode`)
 fn cc_file_path_rules(paths: &[&str]) -> Vec<Value> {
     paths
         .iter()
-        .map(|p| {
-            serde_json::json!({
-                "op": "contains",
-                "path": "event/auth/tool_input/file_path",
-                "value": p
+        .flat_map(|p| {
+            FILE_PATH_KEYS.iter().map(move |key| {
+                serde_json::json!({
+                    "op": "contains",
+                    "path": key,
+                    "value": p
+                })
             })
         })
         .collect()
 }
 
-/// Generate Claude Code command contains rules
+/// Generate command contains rules (Claude Code and `OpenCode`, which both
+/// name the shell argument `command`)
 fn cc_command_rules(patterns: &[&str]) -> Vec<Value> {
     patterns
         .iter()
@@ -67,16 +100,40 @@ fn oc_command_rules(patterns: &[&str]) -> Vec<Value> {
         .collect()
 }
 
-/// Generate a Claude Code tool detection rule (`tool_name` + condition)
+/// Generate a tool detection rule (`tool_name` + condition) matching both the
+/// Claude Code spelling of the tool name and the `OpenCode` one.
 #[allow(clippy::needless_pass_by_value)]
 fn cc_tool_rule(tool: &str, condition_rules: Vec<Value>) -> Value {
     serde_json::json!({
         "op": "and",
         "rules": [
-            { "op": "is", "path": "event/auth/tool_name", "value": tool },
+            { "op": "or", "rules": cc_tool_name_rules(tool) },
             { "op": "or", "rules": condition_rules }
         ]
     })
+}
+
+/// Match a tool name as spelled by Claude Code and as spelled by `OpenCode`
+/// (`Write` / `write`, `WebFetch` / `webfetch`), collapsing to one comparison
+/// when the two agree.
+fn cc_tool_name_rules(tool: &str) -> Vec<Value> {
+    let mut names = vec![tool.to_string()];
+    let lowercase = tool.to_lowercase();
+
+    if lowercase != tool {
+        names.push(lowercase);
+    }
+
+    names
+        .into_iter()
+        .map(|name| {
+            serde_json::json!({
+                "op": "is",
+                "path": "event/auth/tool_name",
+                "value": name
+            })
+        })
+        .collect()
 }
 
 /// Generate an `OpenClaw` tool detection rule (`toolName` + condition)
@@ -91,16 +148,19 @@ fn oc_tool_rule(tool: &str, condition_rules: Vec<Value>) -> Value {
     })
 }
 
-/// Generate Claude Code file extension regex rules (for Write tool)
+/// Generate file extension regex rules for the write tool (Claude Code and
+/// `OpenCode`)
 fn cc_file_extension_rules(extensions: &[&str]) -> Vec<Value> {
     extensions
         .iter()
-        .map(|ext| {
+        .flat_map(|ext| {
             let escaped_ext = ext.replace('.', r"\.");
-            serde_json::json!({
-                "op": "matches",
-                "path": "event/auth/tool_input/file_path",
-                "re": format!(r"{}$", escaped_ext)
+            FILE_PATH_KEYS.iter().map(move |key| {
+                serde_json::json!({
+                    "op": "matches",
+                    "path": key,
+                    "re": format!(r"{}$", escaped_ext)
+                })
             })
         })
         .collect()
@@ -175,21 +235,9 @@ fn create_ssh_access_rule(oid: &str, jwt: &str) -> Result<()> {
     let detect = serde_json::json!({
         "op": "or",
         "rules": [
-            // === Claude Code detection ===
-            {
-                "op": "and",
-                "rules": [
-                    { "op": "is", "path": "event/auth/tool_name", "value": "Read" },
-                    { "op": "contains", "path": "event/auth/tool_input/file_path", "value": ".ssh" }
-                ]
-            },
-            {
-                "op": "and",
-                "rules": [
-                    { "op": "is", "path": "event/auth/tool_name", "value": "Bash" },
-                    { "op": "contains", "path": "event/auth/tool_input/command", "value": ".ssh" }
-                ]
-            },
+            // === Claude Code / OpenCode detection ===
+            cc_tool_rule("Read", cc_file_path_rules(&[".ssh"])),
+            cc_tool_rule("Bash", cc_command_rules(&[".ssh"])),
             { "op": "contains", "path": "event/auth/cwd", "value": ".ssh" },
             // === OpenClaw detection ===
             {
@@ -233,13 +281,15 @@ fn create_hook_config_tamper_rule(oid: &str, jwt: &str) -> Result<()> {
     // Hook config file patterns to monitor
     // NOTE: Keep in sync with providers in src/providers/*.rs
     let config_files = [
-        ".claude/settings.json",          // Claude Code
-        ".cursor/hooks.json",             // Cursor
-        ".gemini/settings.json",          // Gemini CLI
-        ".github/hooks/hooks.json",       // GitHub Copilot CLI (per-project)
-        ".codex/config.toml",             // OpenAI Codex CLI
-        ".config/opencode/opencode.json", // OpenCode
-        ".openclaw/openclaw.json",        // OpenClaw
+        ".claude/settings.json",    // Claude Code
+        ".cursor/hooks.json",       // Cursor
+        ".gemini/settings.json",    // Gemini CLI
+        ".github/hooks/hooks.json", // GitHub Copilot CLI (per-project)
+        ".codex/config.toml",       // OpenAI Codex CLI
+        // OpenCode loads a plugin file rather than a hook command, so the
+        // plugin *is* the hook configuration; opencode.json is not read by us.
+        OPENCODE_PLUGIN_PATH,
+        ".openclaw/openclaw.json", // OpenClaw
     ];
 
     let detect = serde_json::json!({
@@ -279,21 +329,9 @@ fn create_binary_tamper_rule(oid: &str, jwt: &str) -> Result<()> {
     let detect = serde_json::json!({
         "op": "or",
         "rules": [
-            // === Claude Code detection ===
-            {
-                "op": "and",
-                "rules": [
-                    { "op": "is", "path": "event/auth/tool_name", "value": "Write" },
-                    { "op": "contains", "path": "event/auth/tool_input/file_path", "value": ".local/bin/viberails" }
-                ]
-            },
-            {
-                "op": "and",
-                "rules": [
-                    { "op": "is", "path": "event/auth/tool_name", "value": "Bash" },
-                    { "op": "contains", "path": "event/auth/tool_input/command", "value": ".local/bin/viberails" }
-                ]
-            },
+            // === Claude Code / OpenCode detection ===
+            cc_tool_rule("Write", cc_file_path_rules(&[BINARY_PATH])),
+            cc_tool_rule("Bash", cc_command_rules(&[BINARY_PATH])),
             // === OpenClaw detection ===
             {
                 "op": "and",
@@ -517,14 +555,8 @@ fn create_email_sending_rule(oid: &str, jwt: &str) -> Result<()> {
     let detect = serde_json::json!({
         "op": "or",
         "rules": [
-            // === Claude Code detection ===
-            {
-                "op": "and",
-                "rules": [
-                    { "op": "is", "path": "event/auth/tool_name", "value": "Bash" },
-                    { "op": "or", "rules": command_rules }
-                ]
-            },
+            // === Claude Code / OpenCode detection ===
+            cc_tool_rule("Bash", command_rules),
             // === OpenClaw detection ===
             {
                 "op": "and",
@@ -678,14 +710,8 @@ fn create_destructive_delete_rule(oid: &str, jwt: &str) -> Result<()> {
     let detect = serde_json::json!({
         "op": "or",
         "rules": [
-            // === Claude Code detection ===
-            {
-                "op": "and",
-                "rules": [
-                    { "op": "is", "path": "event/auth/tool_name", "value": "Bash" },
-                    { "op": "or", "rules": command_rules }
-                ]
-            },
+            // === Claude Code / OpenCode detection ===
+            cc_tool_rule("Bash", command_rules),
             // === OpenClaw detection ===
             {
                 "op": "and",
@@ -780,21 +806,9 @@ fn create_suspicious_tlds_rule(oid: &str, jwt: &str) -> Result<()> {
     let detect = serde_json::json!({
         "op": "or",
         "rules": [
-            // === Claude Code detection ===
-            {
-                "op": "and",
-                "rules": [
-                    { "op": "is", "path": "event/auth/tool_name", "value": "WebFetch" },
-                    { "op": "or", "rules": url_rules }
-                ]
-            },
-            {
-                "op": "and",
-                "rules": [
-                    { "op": "is", "path": "event/auth/tool_name", "value": "Bash" },
-                    { "op": "or", "rules": command_rules }
-                ]
-            },
+            // === Claude Code / OpenCode detection ===
+            cc_tool_rule("WebFetch", url_rules),
+            cc_tool_rule("Bash", command_rules),
             // === OpenClaw detection ===
             {
                 "op": "and",
@@ -887,3 +901,100 @@ fn create_file_encryption_rule(oid: &str, jwt: &str) -> Result<()> {
         .create()
         .context("Failed to create file encryption D&R rule")
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::common::PROJECT_NAME;
+
+    /// Collect the values compared against a given path anywhere in a rule.
+    fn values_for(rule: &Value, path: &str) -> Vec<String> {
+        let mut found = vec![];
+
+        match rule {
+            Value::Array(items) => {
+                for item in items {
+                    found.extend(values_for(item, path));
+                }
+            }
+            Value::Object(map) => {
+                if map.get("path").and_then(Value::as_str) == Some(path) {
+                    if let Some(value) = map.get("value").and_then(Value::as_str) {
+                        found.push(value.to_string());
+                    }
+                    if let Some(re) = map.get("re").and_then(Value::as_str) {
+                        found.push(re.to_string());
+                    }
+                }
+                for value in map.values() {
+                    found.extend(values_for(value, path));
+                }
+            }
+            _ => {}
+        }
+
+        found
+    }
+
+    #[test]
+    fn test_tool_rule_matches_both_tool_name_spellings() {
+        // Claude Code capitalizes tool names, OpenCode does not, and D&R string
+        // comparison is case sensitive: a rule that only says "Write" is blind
+        // to every OpenCode write.
+        let rule = cc_tool_rule("Write", cc_command_rules(&["rm"]));
+        let names = values_for(&rule, "event/auth/tool_name");
+
+        assert!(names.contains(&"Write".to_string()), "{names:?}");
+        assert!(names.contains(&"write".to_string()), "{names:?}");
+    }
+
+    #[test]
+    fn test_tool_rule_does_not_repeat_an_already_lowercase_name() {
+        let rule = cc_tool_rule("bash", cc_command_rules(&["rm"]));
+
+        assert_eq!(values_for(&rule, "event/auth/tool_name"), vec!["bash"]);
+    }
+
+    #[test]
+    fn test_file_path_rules_cover_both_argument_spellings() {
+        // Claude Code sends tool_input.file_path, OpenCode tool_input.filePath.
+        let rules = Value::Array(cc_file_path_rules(&[".ssh"]));
+
+        assert_eq!(
+            values_for(&rules, "event/auth/tool_input/file_path"),
+            vec![".ssh"]
+        );
+        assert_eq!(
+            values_for(&rules, "event/auth/tool_input/filePath"),
+            vec![".ssh"]
+        );
+    }
+
+    #[test]
+    fn test_file_extension_rules_cover_both_argument_spellings() {
+        let rules = Value::Array(cc_file_extension_rules(&[".enc"]));
+
+        assert_eq!(
+            values_for(&rules, "event/auth/tool_input/file_path"),
+            vec![r"\.enc$"]
+        );
+        assert_eq!(
+            values_for(&rules, "event/auth/tool_input/filePath"),
+            vec![r"\.enc$"]
+        );
+    }
+
+    #[test]
+    fn test_watched_paths_name_the_files_that_carry_enforcement() {
+        // OpenCode enforcement lives in the plugin file, not in opencode.json:
+        // deleting the plugin is what disables the provider, so that is what
+        // has to be watched.
+        assert_eq!(
+            OPENCODE_PLUGIN_PATH,
+            format!(".config/opencode/plugin/{PROJECT_NAME}.js")
+        );
+        assert_eq!(BINARY_PATH, format!(".local/bin/{PROJECT_NAME}"));
+    }
+}
+

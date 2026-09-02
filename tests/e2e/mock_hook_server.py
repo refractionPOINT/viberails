@@ -11,7 +11,38 @@ Return:
 
 import argparse
 import json
+import socketserver
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+
+class MockServer(HTTPServer):
+    """HTTP server that binds without a reverse-DNS lookup.
+
+    `HTTPServer.server_bind` calls `socket.getfqdn()` purely to fill in
+    `server_name`, and it does so *between* bind() and listen(). When the
+    resolver is slow to reverse `127.0.0.1` -- routinely tens of seconds on a
+    macOS CI runner -- the process sits alive and silent with a bound socket
+    that refuses every connection, which is indistinguishable from a hung
+    server. Nothing here reads `server_name`, so the lookup is skipped.
+
+    Parameters:
+      Inherited from HTTPServer.
+
+    Return:
+      Standard HTTPServer behavior.
+    """
+
+    def server_bind(self) -> None:
+        """Bind the listening socket, skipping the FQDN lookup.
+
+        Parameters:
+          None
+
+        Return:
+          None
+        """
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 def parse_args() -> argparse.Namespace:
@@ -102,7 +133,12 @@ def main() -> None:
     """
     args = parse_args()
     handler = make_handler(args.capture_file)
-    server = HTTPServer(("127.0.0.1", args.port), handler)
+    server = MockServer(("127.0.0.1", args.port), handler)
+
+    # Announce readiness so this log is never empty when startup is what
+    # failed: the caller waits on the port, but the log is all it can show.
+    print(f"listening on 127.0.0.1:{args.port}", flush=True)
+
     server.serve_forever()
 
 
